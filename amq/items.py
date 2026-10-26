@@ -14,9 +14,17 @@ DECADES = ["1980s & Earlier", "1990s", "2000s", "2010s", "2020s"]
 GENRES = [
     "Action", "Adventure", "Comedy", "Drama", "Fantasy", "Horror", "Mecha",
     "Music", "Mystery", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural",
+    # appended later; keep this list append-only so item ids stay stable
+    "Mahou Shoujo", "Psychological", "Thriller",
 ]
+# Broad genres; one of these is always among the starting genres so the first lobby has enough songs.
+BROAD_GENRES = ["Action", "Comedy", "Drama", "Fantasy", "Romance", "Slice of Life"]
 FORMATS = ["TV", "Movie", "OVA", "ONA", "Special"]
-RARITY_TIERS = ["Easy", "Medium", "Hard", "Brutal"]  # by community guess rate; Easy is always unlocked
+# By community guess rate, matching the lobby "song difficulty" slider:
+# Easy 60-100%, Medium 25-60%, Hard 10-25%, Brutal 0-10%. Easy and Medium are always unlocked.
+RARITY_TIERS = ["Easy", "Medium", "Hard", "Brutal"]
+FREE_RARITY_TIERS = 2
+LENS_COUNT = len(RARITY_TIERS) - FREE_RARITY_TIERS
 
 FRAGMENT = "Mixtape Fragment"
 LENS = "Progressive Rarity Lens"
@@ -42,27 +50,23 @@ class ItemData(NamedTuple):
 
 
 def _build() -> dict[str, ItemData]:
+    """Each category owns a fixed id block, so appending to a list never shifts existing ids."""
     table: dict[str, ItemData] = {}
     prog = ItemClassification.progression
 
-    def add(name: str, cls: ItemClassification, category: str) -> None:
-        table[name] = ItemData(BASE_ID + len(table), cls, category)
+    def block(offset: int, names, cls: ItemClassification, category: str) -> None:
+        for i, name in enumerate(names):
+            table[name] = ItemData(BASE_ID + offset + i, cls, category)
 
-    for name in SONG_TYPE_ITEMS.values():
-        add(name, prog, "Song Types")
-    for name in DECADE_ITEMS.values():
-        add(name, prog, "Decades")
-    for name in GENRE_ITEMS.values():
-        add(name, prog, "Genres")
-    for name in FORMAT_ITEMS.values():
-        add(name, prog, "Formats")
-    add(LENS, prog, "Rarity")
-    add(FRAGMENT, prog, "Fragments")
-    add(ENCORE, ItemClassification.useful, "Boosts")
-    add(SHIELD, ItemClassification.useful, "Boosts")
-    add(CHEER, ItemClassification.filler, "Boosts")
-    for name in TRAPS:
-        add(name, ItemClassification.trap, "Traps")
+    block(0, SONG_TYPE_ITEMS.values(), prog, "Song Types")
+    block(10, DECADE_ITEMS.values(), prog, "Decades")
+    block(20, GENRE_ITEMS.values(), prog, "Genres")
+    block(60, FORMAT_ITEMS.values(), prog, "Formats")
+    block(70, [LENS], prog, "Rarity")
+    block(71, [FRAGMENT], prog, "Fragments")
+    block(80, [ENCORE, SHIELD], ItemClassification.useful, "Boosts")
+    block(82, [CHEER], ItemClassification.filler, "Boosts")
+    block(90, TRAPS, ItemClassification.trap, "Traps")
     return table
 
 

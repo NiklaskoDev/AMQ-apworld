@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  world:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        archipelago: ["0.6.7", "main"]  # minimum_ap_version and latest
+    env:
+      SKIP_REQUIREMENTS_UPDATE: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch Archipelago ${{ matrix.archipelago }}
+        run: git clone --depth 1 --branch ${{ matrix.archipelago }} https://github.com/ArchipelagoMW/Archipelago.git ap
+      - run: pip install -r ap/requirements.txt pytest
+      - run: ln -s "$PWD/amq" ap/worlds/amq
+      - name: World tests
+        working-directory: ap
+        run: python -m pytest worlds/amq -q
+      - name: Build apworld
+        run: python build.py && python -c "import zipfile, json; z = zipfile.ZipFile('amq.apworld'); m = json.loads(z.read('amq/archipelago.json')); assert m['compatible_version'] == 7, m; print(m)"
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check client/amq_archipelago.user.js
+      - run: node --test client/test/client.test.mjs

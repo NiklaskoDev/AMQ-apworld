@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 
-from Options import Choice, DefaultOnToggle, OptionCounter, OptionGroup, OptionSet, PerGameCommonOptions, Range, Toggle
+from Options import (
+    Choice, DeathLink, DefaultOnToggle, OptionCounter, OptionGroup, OptionSet, PerGameCommonOptions, Range,
+    StartInventoryPool, Toggle,
+)
 
 from .items import TRAPS
 
@@ -52,7 +55,9 @@ class FinaleAccuracy(Range):
 class UnlockCategories(OptionSet):
     """
     Which parts of the quiz are locked behind items. Songs outside your unlocks do not count toward checks.
-    These mirror the filters in the lobby settings: song types, vintage, genres, anime type and guess rate."""
+    These mirror the filters in the lobby settings: song types, vintage, genres, anime type and song difficulty.
+    Rarity: Easy (60-100% guess rate) and Medium (25-60%) are free, two Progressive Rarity Lenses add
+    Hard (10-25%) and Brutal (0-10%)."""
     display_name = "Unlock Categories"
     valid_keys = frozenset(GATING_CATEGORIES)
     default = frozenset(GATING_CATEGORIES)
@@ -69,7 +74,7 @@ class StartingSongType(Choice):
 
 
 class StartingDecades(Range):
-    """How many random decades you begin with (only matters if Decades are locked)."""
+    """How many decades you begin with, as one contiguous range (only matters if Decades are locked)."""
     display_name = "Starting Decades"
     range_start = 1
     range_end = 4
@@ -77,7 +82,7 @@ class StartingDecades(Range):
 
 
 class StartingGenres(Range):
-    """How many random genres you begin with (only matters if Genres are locked)."""
+    """How many random genres you begin with; one is always a broad genre (only matters if Genres are locked)."""
     display_name = "Starting Genres"
     range_start = 2
     range_end = 8
@@ -85,7 +90,7 @@ class StartingGenres(Range):
 
 
 class MilestoneCount(Range):
-    """Number of cumulative "Correct Answers" checks."""
+    """Number of cumulative "Correct Answers" checks. Raised automatically if the item pool would not fit."""
     display_name = "Milestone Count"
     range_start = 5
     range_end = 50
@@ -108,6 +113,15 @@ class ChallengeChecks(DefaultOnToggle):
 class MultiplayerChecks(Toggle):
     """Add checks for placing well in games with other players. Leave off for solo play."""
     display_name = "Multiplayer Checks"
+
+
+class DeathLinkMisses(Range):
+    """With Death Link on, missing this many eligible songs in a row sends a death.
+    A received death wipes your streak and mutes the next song."""
+    display_name = "Death Link Miss Streak"
+    range_start = 1
+    range_end = 10
+    default = 3
 
 
 class TrapPercentage(Range):
@@ -152,6 +166,9 @@ class AMQOptions(PerGameCommonOptions):
     trap_percentage: TrapPercentage
     trap_weights: TrapWeights
     trap_duration: TrapDuration
+    death_link: DeathLink
+    death_link_misses: DeathLinkMisses
+    start_inventory_from_pool: StartInventoryPool
 
 
 OPTION_GROUPS = [
@@ -159,4 +176,5 @@ OPTION_GROUPS = [
     OptionGroup("Unlocks", [UnlockCategories, StartingSongType, StartingDecades, StartingGenres]),
     OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, MultiplayerChecks]),
     OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration]),
+    OptionGroup("Death Link", [DeathLink, DeathLinkMisses]),
 ]
