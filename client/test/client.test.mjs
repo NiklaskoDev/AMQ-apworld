@@ -5,8 +5,8 @@ import { answer, FakeSocket, loadClient } from './harness.mjs';
 
 const ITEMS = {
   'Opening Pass': 1, 'Ending Pass': 2, 'Decade Pass: 1980s & Earlier': 10, 'Decade Pass: 2000s': 12, 'Genre Key: Action': 20, 'Format Pass: TV': 60,
-  'Progressive Rarity Lens': 70, 'Mixtape Fragment': 71, 'Progressive Guess Time': 72, 'Encore Ticket': 80, 'Streak Shield': 81, 'Hype Cheer': 82,
-  'Mute Trap': 90, 'Reverse Typing Trap': 91, 'Streak Wipe Trap': 93, 'Tax Collector Trap': 94,
+  'Progressive Rarity Lens': 70, 'Mixtape Fragment': 71, 'Progressive Guess Time': 72, 'Sample Pass: Middle': 73, 'Sample Pass: End': 74, 'Encore Ticket': 80, 'Streak Shield': 81, 'Hype Cheer': 82,
+  'Mute Trap': 90, 'Reverse Typing Trap': 91, 'Tiny Text Trap': 92, 'Streak Wipe Trap': 93, 'Tax Collector Trap': 94,
 };
 const CHECKS = [
   { id: 1010, name: 'Correct Answers: 10', kind: 'total', n: 10, stage: 0 },
@@ -18,7 +18,7 @@ const CHECKS = [
   { id: 2701, name: 'Win a Multiplayer Game', kind: 'mp_win', n: 2, stage: 0 },
 ];
 const slotData = extra => ({
-  client_version: 4, goal: 'fragments', fragments_required: 4, finale_songs: 20, finale_accuracy: 70,
+  client_version: 5, goal: 'fragments', fragments_required: 4, finale_songs: 20, finale_accuracy: 70,
   stages: ['A', 'B', 'C', 'D'], stage_fragments: [0, 1, 2, 3],
   gated: ['Song Types', 'Decades', 'Genres', 'Formats', 'Rarity'], trap_duration: 2,
   death_link: true, death_link_misses: 3, checks: CHECKS, ...extra,
@@ -534,4 +534,137 @@ test('apply to room shortens a too-long guess time and leaves a shorter one', as
   const short = { guessTime: { randomOn: false, standardValue: 7 } };
   api.lobbySettingsFor(short, { guessTime: 10 });
   assert.equal(short.guessTime.standardValue, 7);
+});
+
+const SP = { gated: ['Song Types', 'Decades', 'Genres', 'Formats', 'Rarity', 'Sample Point'],
+  checks: [...CHECKS, { id: 3101, name: 'Middle Sample: 10 Correct', kind: 'sample', key: 'Middle', n: 2, stage: 0 }] };
+const sampleRoom = (sandbox, samplePoint) => { sandbox.lobby = { inLobby: true, isHost: true, settings: { samplePoint } }; };
+
+test('sample point: locked points are ignored, passes open them and count toward their check', async () => {
+  const { ws, fire, S, api, sandbox } = await connected({ slot: SP });
+  sampleRoom(sandbox, { randomOn: false, standardValue: 1 });
+  fire('answer results', answer());
+  assert.match(S.lastSong, /Start sample → counted/);
+  sampleRoom(sandbox, { randomOn: false, standardValue: 2 });
+  fire('answer results', answer());
+  assert.match(S.lastSong, /ignored \(Middle sample point locked\)/);
+  sampleRoom(sandbox, { randomOn: true, standardValue: 1, randomValue: [0, 100] });
+  fire('answer results', answer());
+  assert.match(S.lastSong, /Random sample point locked/);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Sample Pass: Middle']) }]);
+  sampleRoom(sandbox, { randomOn: false, standardValue: 2 });
+  sentChecks(ws);
+  fire('answer results', answer());
+  fire('answer results', answer());
+  assert.deepEqual(sentChecks(ws).filter(id => id === 3101), [3101]);
+  const guide = Object.fromEntries(JSON.parse(JSON.stringify(api.lobbyGuide())));
+  assert.equal(guide['Sample point'], 'Start, Middle');
+  const room = { samplePoint: { randomOn: true, standardValue: 2, randomValue: [0, 100] } };
+  api.lobbySettingsFor(room, api.lobbyWish());
+  assert.deepEqual(room.samplePoint, { randomOn: false, standardValue: 1, randomValue: [0, 100] }, 'a locked point falls back to Start');
+  const ok = { samplePoint: { randomOn: false, standardValue: 2 } };
+  api.lobbySettingsFor(ok, api.lobbyWish());
+  assert.equal(ok.samplePoint.standardValue, 2, 'an unlocked point is kept');
+});
+
+const COMEBACKS = [
+  { id: 3000, name: 'Bounce Back', kind: 'bounce', n: 2, stage: 0 },
+  { id: 3002, name: 'Comeback', kind: 'comeback', n: 3, stage: 0 },
+  { id: 3003, name: 'Strong Finish', kind: 'finish', n: 3, stage: 0 },
+];
+
+test('comebacks: bounce back, comeback after three misses, strong finish at quiz over', async () => {
+  const { ws, fire, S } = await connected({ slot: { checks: [...CHECKS, ...COMEBACKS], death_link: false } });
+  sentChecks(ws);
+  fire('quiz ready', {});
+  const miss = () => fire('answer results', answer({ correct: false }));
+  const hit = () => fire('answer results', answer());
+  miss(); hit();
+  assert.equal(S.prog.bounce, 1);
+  hit();
+  assert.equal(S.prog.bounce, 1, 'only the answer right after a miss');
+  miss(); miss(); hit(); hit();
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3000), [3000]);
+  miss(); miss(); miss();
+  hit(); hit(); hit();
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3000), [3002], 'finish waits for the end of the game');
+  fire('quiz over', {});
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3000), [3003]);
+});
+
+test('strong finish needs the streak at the very end', async () => {
+  const { ws, fire } = await connected({ slot: { checks: [...CHECKS, ...COMEBACKS], death_link: false } });
+  sentChecks(ws);
+  fire('quiz ready', {});
+  for (let i = 0; i < 4; i++) fire('answer results', answer());
+  fire('answer results', answer({ correct: false }));
+  fire('quiz over', {});
+  assert.ok(!sentChecks(ws).includes(3003));
+});
+
+test('trap link: received traps are shared, linked ones are matched by name', async () => {
+  const { ws, S } = await connected({ slot: { trap_link: true, death_link: false } });
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.take('ConnectUpdate')[0].tags)), ['TrapLink']);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Tiny Text Trap', 'Encore Ticket']) }]);
+  const out = ws.take('Bounce');
+  assert.equal(out.length, 1, 'only traps are shared');
+  assert.deepEqual([...out[0].tags], ['TrapLink']);
+  assert.equal(out[0].data.trap_name, 'Tiny Text Trap');
+  assert.equal(out[0].data.source, 'Me');
+
+  const link = (trap_name, source = 'Friend') => ws.server([{ cmd: 'Bounced', tags: ['TrapLink'], data: { time: 1, source, trap_name } }]);
+  link('Silence Trap');
+  assert.equal(S.prog.traps.mute, 2);
+  assert.match(S.log.at(-1), /^TrapLink from Friend \(Silence Trap\): Mute Trap!/);
+  link('Confusion Trap');
+  assert.equal(S.prog.traps.reverse, 2);
+  S.prog.total = 9;
+  link('Rupee Tax');
+  assert.equal(S.prog.total, 4);
+  link('Tiny Text Trap', 'Me');
+  assert.equal(S.prog.traps.tiny, 2, 'own echo ignored');
+  link('Gravity Trap');
+  assert.match(S.log.at(-1), /no match here/);
+  assert.equal(ws.take('Bounce').length, 0, 'linked traps are not passed on again');
+});
+
+test('trap link off: nothing is shared or received', async () => {
+  const { ws, S } = await connected({ slot: { death_link: false } });
+  assert.equal(ws.take('ConnectUpdate').length, 0);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Mute Trap']) }]);
+  ws.server([{ cmd: 'Bounced', tags: ['TrapLink'], data: { time: 1, source: 'Friend', trap_name: 'Mute Trap' } }]);
+  assert.equal(S.prog.traps.mute, 2);
+  assert.equal(ws.take('Bounce').length, 0);
+});
+
+const GENRE_CHECKS = [
+  { id: 2200, name: 'Genre Scholar: Action', kind: 'genre', key: 'Action', n: 1, stage: 0 },
+  { id: 2201, name: 'Genre Scholar: Adventure', kind: 'genre', key: 'Adventure', n: 1, stage: 0 },
+];
+
+test('scholar goal needs the fragments and every genre check, also when collected remotely', async () => {
+  const { ws, fire } = await connected({ slot: { goal: 'scholar', goal_kinds: ['genre'], checks: [...CHECKS, ...GENRE_CHECKS] } });
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(Array(4).fill('Mixtape Fragment')) }]);
+  fire('answer results', answer());
+  assert.ok(sentChecks(ws).includes(2200));
+  assert.equal(ws.take('StatusUpdate').length, 0, 'Adventure is still open');
+  ws.server([{ cmd: 'RoomUpdate', checked_locations: [2201] }]);
+  assert.deepEqual(ws.take('StatusUpdate').map(m => m.status), [30]);
+});
+
+test('a lobby letting in mostly locked songs gets one warning per game', async () => {
+  const { fire, S, sandbox } = await connected();
+  const lines = [];
+  sandbox.gameChat = { systemMessage: t => lines.push(t) };
+  fire('quiz ready', {});
+  fire('answer results', answer());
+  for (let i = 0; i < 4; i++) fire('answer results', answer({ type: 2 }));
+  assert.equal(lines.filter(l => /didn't count/.test(l)).length, 1);
+  assert.match(lines.at(-1), /4 of 5 songs this game didn't count \(most often: Ending locked\)/);
+  for (let i = 0; i < 5; i++) fire('answer results', answer({ type: 2 }));
+  assert.equal(lines.filter(l => /didn't count/.test(l)).length, 1, 'once per game');
+  fire('quiz ready', {});
+  for (let i = 0; i < 5; i++) fire('answer results', answer({ year: 1995 }));
+  assert.equal(lines.filter(l => /didn't count/.test(l)).length, 2);
+  assert.match(S.log.at(-1), /1990s locked/);
 });

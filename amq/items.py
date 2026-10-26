@@ -28,6 +28,9 @@ DEFAULT_FREE_RARITY_TIERS = 2
 FRAGMENT = "Mixtape Fragment"
 LENS = "Progressive Rarity Lens"
 CLOCK = "Progressive Guess Time"
+# the room's sample point setting; Start is always open, the others need a pass
+SAMPLE_POINTS = ["Start", "Middle", "End", "Random"]
+SAMPLE_ITEMS = {p: f"Sample Pass: {p}" for p in SAMPLE_POINTS[1:]}
 
 SONG_TYPE_ITEMS = {t: f"{t} Pass" for t in SONG_TYPES}
 DECADE_ITEMS = {d: f"Decade Pass: {d}" for d in DECADES}
@@ -66,6 +69,7 @@ def _build() -> dict[str, ItemData]:
     block(71, [FRAGMENT], prog, "Fragments")
     # nothing needs a longer timer (a short one always works), so it only makes play easier
     block(72, [CLOCK], ItemClassification.useful, "Guess Time")
+    block(73, SAMPLE_ITEMS.values(), prog, "Sample Point")
     block(80, [ENCORE, SHIELD], ItemClassification.useful, "Boosts")
     block(82, [CHEER], ItemClassification.filler, "Boosts")
     block(90, TRAPS, ItemClassification.trap, "Traps")
@@ -80,6 +84,7 @@ ITEM_GROUPS = {
     "Decade Pass": set(DECADE_ITEMS.values()),
     "Genre Key": set(GENRE_ITEMS.values()),
     "Format Pass": set(FORMAT_ITEMS.values()),
+    "Sample Pass": set(SAMPLE_ITEMS.values()),
     "Traps": set(TRAPS),
     "Boosts": {ENCORE, SHIELD, CHEER},
 }

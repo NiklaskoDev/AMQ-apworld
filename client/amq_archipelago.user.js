@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.6.0
+// @version      0.7.0
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
@@ -15,7 +15,7 @@
   'use strict';
 
   const GAME = 'Anime Music Quiz';
-  const CLIENT_VERSION = 4;
+  const CLIENT_VERSION = 5;
   const TYPES = { 1: 'Opening', 2: 'Ending', 3: 'Insert Song' };
   const DECADES = ['1980s & Earlier', '1990s', '2000s', '2010s', '2020s'];
   const DECADE_YEARS = { '1980s & Earlier': [null, 1989], '1990s': [1990, 1999], '2000s': [2000, 2009], '2010s': [2010, 2019], '2020s': [2020, null] };
@@ -24,6 +24,7 @@
   const FORMATS = ['TV', 'Movie', 'OVA', 'ONA', 'Special'];
   const TIERS = ['Easy', 'Medium', 'Hard', 'Brutal'];
   const SEASONS = ['Winter', 'Spring', 'Summer', 'Fall'];
+  const SAMPLE_POINTS = ['Start', 'Middle', 'End', 'Random']; // Start is always open
   // guess-rate floors (%) matching the lobby slider; seeds set their own via slot data, these are the defaults
   const DEFAULT_FLOORS = { Easy: 60, Medium: 25, Hard: 10, Brutal: 0 };
   const DEFAULT_FREE_TIERS = 2;
@@ -31,6 +32,7 @@
   const freeTiers = () => (S.data && S.data.free_difficulty_tiers) || DEFAULT_FREE_TIERS;
   const GUESS_TIME_MAX = 60; // AMQ's longest guess time
   const TIMED_TRAPS = { 'Mute Trap': 'mute', 'Reverse Typing Trap': 'reverse', 'Tiny Text Trap': 'tiny' };
+  const TRAPS = [...Object.keys(TIMED_TRAPS), 'Streak Wipe Trap', 'Tax Collector Trap'];
 
   // ---------- storage (never throws) ----------
   const LS = 'amq_ap_';
@@ -44,20 +46,20 @@
 
   // ---------- state ----------
   const freshProgress = () => ({
-    v: 1, total: 0, type: {}, decade: {}, genre: {}, format: {}, rarity: {}, season: {},
-    listOn: 0, listOff: 0,
+    v: 1, total: 0, type: {}, decade: {}, genre: {}, format: {}, rarity: {}, season: {}, sample: {},
+    listOn: 0, listOff: 0, bounce: 0,
     processed: 0, encore: 0, shield: 0, traps: { mute: 0, reverse: 0, tiny: 0 }, finaleDone: false,
   });
   const freshGame = () => ({
     songs: 0, eligible: 0, eligibleCorrect: 0, streak: 0, best: 0, missRun: 0,
     types: new Set(), decades: new Set(), genres: new Set(), seasons: new Set(), listOn: 0, listOff: 0, standing: null,
-    finalized: false,
+    finalized: false, afterMiss: false, dry: 0, armed: false, comebackBest: 0, ignored: 0, reasons: {}, lobbyWarned: false,
   });
   const S = {
     ws: null, connected: false, ready: false, manualClose: false, retries: 0, retryTimer: null,
     conn: load('conn', { url: 'archipelago.gg:38281', slot: '' }), password: '',
     seed: '', team: 0, slot: 0, slotName: '', data: null, players: {}, slotInfo: {}, games: {},
-    checked: new Set(), received: [], queued: [], scouts: {}, scoutMode: load('scout', 'items'), guessTimeWarned: false,
+    checked: new Set(), received: [], queued: [], scouts: {}, scoutMode: load('scout', 'items'), warned: new Set(),
     unlocks: null, fragments: 0, prog: freshProgress(), game: freshGame(),
     goalSent: false, lastPayload: null, lastSong: '', log: [], chatMode: load('chat', 'mine'),
   };
@@ -144,6 +146,13 @@
     const t = g.randomOn && Array.isArray(g.randomValue) ? g.randomValue[1] : g.standardValue;
     return typeof t === 'number' && isFinite(t) ? t : null;
   }
+  /** The room's sample point (Start, Middle, End or Random), or null if unreadable. */
+  function roomSamplePoint() {
+    const sp = typeof lobby !== 'undefined' && lobby && lobby.settings && lobby.settings.samplePoint;
+    if (!sp) return null;
+    if (sp.randomOn) return 'Random';
+    return { 1: 'Start', 2: 'Middle', 3: 'End' }[sp.standardValue] || null;
+  }
   const ANSWER_INPUT = '#qpAnswerInput';
   const CHAT_INPUT_ID = 'gcInput';
   function amqChat(text) { // returns false if AMQ's chat is unavailable
@@ -228,6 +237,14 @@
         done.push('guess time');
       } else manual.push('guess time');
     }
+    if (want.samples) {
+      const sp = s.samplePoint;
+      if (sp && typeof sp.standardValue === 'number') {
+        const now = sp.randomOn ? 'Random' : { 1: 'Start', 2: 'Middle', 3: 'End' }[sp.standardValue];
+        if (!want.samples.includes(now)) { sp.randomOn = false; sp.standardValue = 1; } // Start is always open
+        done.push('sample point');
+      } else manual.push('sample point');
+    }
     if (want.watchedOnly) {
       const sel = s.songSelection;
       if (sel && sel.advancedValue) {
@@ -259,7 +276,8 @@
   // ---------- unlocks / eligibility ----------
   const gated = c => !!(S.data && S.data.gated.includes(c));
   function rebuildUnlocks() {
-    const u = { types: new Set(), decades: new Set(), genres: new Set(), formats: new Set(), lens: 0, clocks: 0 };
+    const u = { types: new Set(), decades: new Set(), genres: new Set(), formats: new Set(), lens: 0, clocks: 0,
+      samples: new Set(['Start']) };
     let fragments = 0, r;
     for (const name of S.received) {
       if ((r = /^(Opening|Ending|Insert Song) Pass$/.exec(name))) u.types.add(r[1]);
@@ -268,6 +286,7 @@
       else if ((r = /^Format Pass: (.+)$/.exec(name))) u.formats.add(r[1]);
       else if (name === 'Progressive Rarity Lens') u.lens++;
       else if (name === 'Progressive Guess Time') u.clocks++;
+      else if ((r = /^Sample Pass: (.+)$/.exec(name))) u.samples.add(r[1]);
       else if (name === 'Mixtape Fragment') fragments++;
     }
     S.unlocks = u; S.fragments = fragments;
@@ -285,6 +304,9 @@
     const U = S.unlocks;
     if (gated('Guess Time') && room.guessTime !== null && room.guessTime !== undefined && room.guessTime > allowedGuessTime()) {
       return `guess time ${room.guessTime}s, ${allowedGuessTime()}s allowed`;
+    }
+    if (gated('Sample Point') && room.samplePoint && !U.samples.has(room.samplePoint)) {
+      return `${room.samplePoint} sample point locked`;
     }
     if (songSource() === 'own_list' && !own.onList) return 'not on your list';
     if (gated('Song Types') && !U.types.has(song.type)) return song.type ? `${song.type} locked` : 'unknown song type';
@@ -379,7 +401,10 @@
         rebuildUnlocks();
         S.game = freshGame();
         if ((S.data.client_version || 0) > CLIENT_VERSION) say('This seed expects a newer userscript. Please update.');
-        if (S.data.death_link) send([{ cmd: 'ConnectUpdate', tags: ['DeathLink'] }]);
+        {
+          const tags = [S.data.death_link && 'DeathLink', S.data.trap_link && 'TrapLink'].filter(Boolean);
+          if (tags.length) send([{ cmd: 'ConnectUpdate', tags }]);
+        }
         send([{ cmd: 'Get', keys: [dsKey()] }]);
         { // what each open check holds; create_as_hint 0 so nothing is announced or spent
           const open = S.data.checks.map(c => c.id).filter(id => !S.checked.has(id));
@@ -407,6 +432,7 @@
         break;
       case 'RoomUpdate':
         (m.checked_locations || []).forEach(l => S.checked.add(l));
+        if ((m.checked_locations || []).length) evaluate(); // a collect can finish a check-based goal
         break;
       case 'PrintJSON': {
         const text = printJson(m.data || []);
@@ -416,6 +442,7 @@
       }
       case 'Bounced':
         if ((m.tags || []).includes('DeathLink')) onDeath(m.data || {});
+        if ((m.tags || []).includes('TrapLink')) onTrapLink(m.data || {});
         break;
     }
     render();
@@ -472,9 +499,22 @@
     evaluate();
   }
 
-  function applyOneShot(name) {
+  /** Applies one of this world's traps and returns what happened, or null if `name` is not a trap here. */
+  function trapEffect(name) {
     const d = (S.data && S.data.trap_duration) || 3;
-    if (name in TIMED_TRAPS) { S.prog.traps[TIMED_TRAPS[name]] += d; notify(`${name}! Lasts ${d} songs.`); }
+    if (name in TIMED_TRAPS) { S.prog.traps[TIMED_TRAPS[name]] += d; return `${name}! Lasts ${d} songs.`; }
+    if (name === 'Streak Wipe Trap') { S.game.streak = 0; return 'Streak Wipe Trap! Your streak is gone.'; }
+    if (name === 'Tax Collector Trap') { S.prog.total = Math.max(0, S.prog.total - 5); return 'Tax Collector Trap! -5 milestone progress.'; }
+    return null;
+  }
+  function applyOneShot(name) {
+    const trap = trapEffect(name);
+    if (trap) {
+      notify(trap);
+      if (S.data.trap_link) {
+        send([{ cmd: 'Bounce', tags: ['TrapLink'], data: { time: Date.now() / 1000, source: S.slotName, trap_name: name } }]);
+      }
+    }
     else if (name === 'Encore Ticket') { S.prog.encore++; notify('Encore Ticket: your next counted answer is worth 2.'); }
     else if (name === 'Streak Shield') { S.prog.shield++; notify('Streak Shield ready.'); }
     else if (name === 'Hype Cheer') {
@@ -482,9 +522,31 @@
       for (const k of Object.keys(S.prog.traps)) if (S.prog.traps[k] > 0) S.prog.traps[k]--;
       notify('Hype Cheer! +2 milestone progress, and active traps end a song sooner.');
     }
-    else if (name === 'Streak Wipe Trap') { S.game.streak = 0; notify('Streak Wipe Trap! Your streak is gone.'); }
-    else if (name === 'Tax Collector Trap') { S.prog.total = Math.max(0, S.prog.total - 5); notify('Tax Collector Trap! -5 milestone progress.'); }
     applyTraps();
+  }
+
+  // ---------- TrapLink ----------
+  // Other games' trap names, matched by keyword to the closest trap here. Unknown kinds are ignored.
+  const LINKED_TRAPS = [
+    [/mute|silen|deaf|quiet|sound|audio|music/i, 'Mute Trap'],
+    [/revers|confus|invert|mirror|backward|flip|scramble/i, 'Reverse Typing Trap'],
+    [/tiny|small|shrink|zoom|blur|pixel|fog|dark|blind|fuzz/i, 'Tiny Text Trap'],
+    [/tax|money|coin|rupee|cash|gold|bank|debt/i, 'Tax Collector Trap'],
+    [/reset|wipe|amnesia|forget|stun|freeze|slow|paraly/i, 'Streak Wipe Trap'],
+  ];
+  function linkedTrap(name) {
+    if (typeof name !== 'string') return null;
+    if (TRAPS.includes(name)) return name;
+    const hit = LINKED_TRAPS.find(([re]) => re.test(name));
+    return hit ? hit[1] : null;
+  }
+  function onTrapLink(d) {
+    if (!S.data || !S.data.trap_link || !S.ready || d.source === S.slotName) return;
+    const mine = linkedTrap(d.trap_name);
+    if (!mine) { say(`TrapLink: ${d.trap_name} from ${d.source || 'someone'} has no match here.`); return; }
+    const text = trapEffect(mine);
+    applyTraps(); saveProg();
+    notify(`TrapLink from ${d.source || 'someone'} (${d.trap_name}): ${text}`);
   }
 
   function saveProg() {
@@ -542,19 +604,26 @@
     const g = S.game;
     g.songs++;
     g.standing = { rank: own.rank, count: own.count };
-    const room = { guessTime: roomGuessTime() };
-    if (gated('Guess Time') && room.guessTime === null && !S.guessTimeWarned) {
-      S.guessTimeWarned = true;
-      say("Can't read the room's guess time, so songs count regardless. Keep it within your allowed time.");
+    const room = { guessTime: roomGuessTime(), samplePoint: roomSamplePoint() };
+    const warnOnce = (key, text) => { if (!S.warned.has(key)) { S.warned.add(key); say(text); } };
+    if (gated('Guess Time') && room.guessTime === null) {
+      warnOnce('guess', "Can't read the room's guess time, so songs count regardless. Keep it within your allowed time.");
+    }
+    if (gated('Sample Point') && room.samplePoint === null) {
+      warnOnce('sample', "Can't read the room's sample point, so songs count regardless and sample point checks can't progress.");
     }
     const reason = ineligibleReason(song, own, room);
     let status;
     if (reason) {
       status = `ignored (${reason})`;
+      g.ignored++; bump(g.reasons, reason);
     } else {
       g.eligible++;
       if (own.correct) {
-        g.eligibleCorrect++; g.streak++; g.best = Math.max(g.best, g.streak); g.missRun = 0;
+        g.eligibleCorrect++; g.streak++; g.best = Math.max(g.best, g.streak); g.missRun = 0; g.dry = 0;
+        if (g.afterMiss) { S.prog.bounce++; g.afterMiss = false; }
+        if (g.armed) g.comebackBest = Math.max(g.comebackBest, g.streak);
+        if (room.samplePoint) bump(S.prog.sample, room.samplePoint);
         const weight = S.prog.encore > 0 ? 2 : 1;
         if (weight === 2) S.prog.encore--;
         S.prog.total += weight;
@@ -566,16 +635,24 @@
         if (own.onList) { S.prog.listOn++; g.listOn++; } else { S.prog.listOff++; g.listOff++; }
         status = weight === 2 ? 'counted x2 (Encore)' : 'counted';
       } else if (S.prog.shield > 0) {
-        S.prog.shield--;
+        S.prog.shield--; g.afterMiss = true;
         status = 'missed, Streak Shield held';
       } else {
-        g.streak = 0; g.missRun++;
+        g.streak = 0; g.missRun++; g.afterMiss = true;
+        if (++g.dry >= 3) g.armed = true;
         status = 'missed';
         if (S.data.death_link && g.missRun >= S.data.death_link_misses) { g.missRun = 0; sendDeath(); }
       }
     }
     const origin = songSource() === 'any' ? null : own.onList ? 'on list' : 'off list';
-    S.lastSong = [song.type, song.decade, song.format, song.tier, origin].filter(Boolean).join(' · ') + ' → ' + status;
+    const sample = gated('Sample Point') && room.samplePoint ? `${room.samplePoint} sample` : null;
+    S.lastSong = [song.type, song.decade, song.format, song.tier, sample, origin].filter(Boolean).join(' · ') + ' → ' + status;
+    if (!g.lobbyWarned && g.songs >= 5 && g.ignored * 5 >= g.songs * 3) {
+      g.lobbyWarned = true;
+      const top = Object.entries(g.reasons).sort((a, b) => b[1] - a[1])[0][0];
+      notify(`${g.ignored} of ${g.songs} songs this game didn't count (most often: ${top}). ` +
+        'Use Apply to room in the panel or /ap lobby to match your unlocks.');
+    }
     tickTraps();
     evaluate();
     saveProg();
@@ -601,6 +678,10 @@
       case 'format': return [count('format', c.key), c.n];
       case 'rarity': return [count('rarity', c.key), c.n];
       case 'season': return [count('season', c.key), c.n];
+      case 'sample': return [count('sample', c.key), c.n];
+      case 'bounce': return [P.bounce, c.n];
+      case 'comeback': return [g.comebackBest, c.n];
+      case 'finish': return [final ? g.streak : Math.min(g.streak, c.n - 1), c.n]; // only judged when the game ends
       case 'streak': return [g.best, c.n];
       case 'flawless': return [g.eligible === g.eligibleCorrect ? g.eligible : 0, c.n];
       case 'accuracy': return [g.eligibleCorrect * 100 >= c.pct * g.eligible ? g.eligible : 0, c.n];
@@ -616,6 +697,12 @@
       case 'mp_win': return [final && g.standing && g.standing.count >= c.n && g.standing.rank === 1 ? 1 : 0, 1];
     }
     return [0, 1];
+  }
+  /** [done, total] of the checks a check-based goal (scholar, specialist) needs; [0, 0] for other goals. */
+  function goalChecks() {
+    const kinds = (S.data && S.data.goal_kinds) || [];
+    const targets = kinds.length ? S.data.checks.filter(c => kinds.includes(c.kind)) : [];
+    return [targets.filter(c => S.checked.has(c.id)).length, targets.length];
   }
   /** Fragments still missing before this check's stage opens, or 0. Progress keeps counting while locked. */
   function stageLock(c) {
@@ -635,7 +722,10 @@
       notify('Grand Finale cleared!');
       saveProg();
     }
-    if (!S.goalSent && S.fragments >= D.fragments_required && (D.goal === 'fragments' || S.prog.finaleDone)) {
+    const [goalDone, goalTotal] = goalChecks();
+    const goalMet = D.goal === 'fragments' || (D.goal === 'finale' && S.prog.finaleDone) ||
+      (goalTotal > 0 && goalDone === goalTotal);
+    if (!S.goalSent && S.fragments >= D.fragments_required && goalMet) {
       S.goalSent = true;
       send([{ cmd: 'StatusUpdate', status: 30 }]);
       notify('Goal complete!');
@@ -665,6 +755,7 @@
     if (gated('Rarity')) want.difficulty = [tierFloor(TIERS[maxTier()]), 100];
     if (gated('Genres')) want.genres = GENRES.filter(g => U.genres.has(g));
     if (gated('Guess Time')) want.guessTime = allowedGuessTime();
+    if (gated('Sample Point')) want.samples = SAMPLE_POINTS.filter(p => U.samples.has(p));
     if (songSource() === 'own_list') want.watchedOnly = true;
     return want;
   }
@@ -686,6 +777,7 @@
       ['Difficulty', `${tierFloor(TIERS[maxTier()])}–100%`],
       ['Genres (optional)', list('Genres', U.genres, GENRES)],
       ['Guess time', gated('Guess Time') ? `${allowedGuessTime()}s or less` : 'any'],
+      ['Sample point', list('Sample Point', U.samples, SAMPLE_POINTS)],
       ['Song selection', { any: 'any', own_list: 'watched only (your list)', mixed: 'mix of watched and random' }[songSource()] || 'any'],
     ];
   }
@@ -750,6 +842,8 @@
         h += P.finaleDone ? 'Finale: cleared<br>' : S.fragments >= D.fragments_required
           ? `<b>Finale open:</b> ${D.finale_songs}+ counted songs at ${D.finale_accuracy}% in one game<br>` : '';
       }
+      const [goalDone, goalTotal] = goalChecks();
+      if (goalTotal) h += `Goal: ${goalDone}/${goalTotal} ${D.goal === 'scholar' ? 'Genre Scholar' : 'song type'} checks<br>`;
       h += section('guide', 'Lobby settings', '<table>' + lobbyGuide().map(([k, v]) => `<tr><td class="dim">${k}</td><td>${esc(v)}</td></tr>`).join('') + '</table>' +
         '<button id="ap-lobby">Apply to room (host only)</button>');
       const open = D.checks.filter(c => !S.checked.has(c.id)).map(c => {

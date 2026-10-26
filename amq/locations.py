@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from BaseClasses import Location
 
 from .items import (
-    BASE_ID, DECADES, DECADE_ITEMS, DEFAULT_FREE_RARITY_TIERS, FORMATS, FORMAT_ITEMS, GAME_NAME, GENRES, GENRE_ITEMS, LENS,
-    RARITY_TIERS, SONG_TYPES, SONG_TYPE_ITEMS,
+    BASE_ID, DECADES, DECADE_ITEMS, DEFAULT_FREE_RARITY_TIERS, FORMATS, FORMAT_ITEMS, GAME_NAME, GENRES, GENRE_ITEMS,
+    LENS, RARITY_TIERS, SAMPLE_ITEMS, SAMPLE_POINTS, SONG_TYPES, SONG_TYPE_ITEMS,
 )
 
 STAGES = ["Warm-Up Lobby", "Listening Booth", "Recording Studio", "Concert Hall"]
@@ -21,6 +21,7 @@ SEASONS = ["Winter", "Spring", "Summer", "Fall"]  # AMQ's vintage names, e.g. "S
 GROUP_OFFSETS = {
     "Song Types": 2000, "Decades": 2100, "Genres": 2200, "Formats": 2300, "Rarity": 2400,
     "Streaks": 2500, "Challenges": 2600, "Multiplayer": 2700, "Song Source": 2800, "Seasons": 2900,
+    "Comebacks": 3000, "Sample Points": 3100,
 }
 
 
@@ -63,7 +64,7 @@ def milestone_name(n: int) -> str:
 
 def build_check_specs(milestone_count: int, milestone_step: int, challenges: bool, multiplayer: bool,
                       list_checks: bool = False, free_tiers: int = DEFAULT_FREE_RARITY_TIERS,
-                      seasons: bool = False) -> list[CheckSpec]:
+                      seasons: bool = False, sample_points: bool = False) -> list[CheckSpec]:
     specs: list[CheckSpec] = []
 
     for i in range(milestone_count):
@@ -114,12 +115,24 @@ def build_check_specs(milestone_count: int, milestone_step: int, challenges: boo
         for n, stage in ((5, 1), (10, 3)):
             specs.append(CheckSpec(f"Genre Sampler: {n} Genres in One Game", "game_genres", stage, "Challenges",
                                    n=n, reqs=(Req("Genres", tuple(GENRE_ITEMS.values()), n),)))
+        for n, stage in ((5, 0), (15, 2)):
+            specs.append(CheckSpec(f"Bounce Back: {n} Correct Right After a Miss", "bounce", stage, "Comebacks", n=n))
+        specs.append(CheckSpec("Comeback: 5 in a Row After Missing 3 in a Row", "comeback", 1, "Comebacks", n=5))
+        for n, stage in ((5, 1), (10, 3)):
+            specs.append(CheckSpec(f"Strong Finish: End a Game on a {n}-Song Streak", "finish", stage, "Comebacks",
+                                   n=n))
 
     if seasons:
         for season in SEASONS:
             specs.append(CheckSpec(f"{season} Listener: 10 Correct", "season", 1, "Seasons", key=season, n=10))
         specs.append(CheckSpec("Four Seasons: Winter, Spring, Summer and Fall in One Game", "game_seasons", 1,
                                "Seasons", n=len(SEASONS)))
+
+    if sample_points:
+        for point in SAMPLE_POINTS:
+            reqs = (Req("Sample Point", (SAMPLE_ITEMS[point],)),) if point in SAMPLE_ITEMS else ()
+            specs.append(CheckSpec(f"{point} Sample: 10 Correct", "sample", 0 if point == "Start" else 1,
+                                   "Sample Points", key=point, n=10, reqs=reqs))
 
     if list_checks:  # song_source: mixed
         for n, stage in ((10, 0), (25, 1), (50, 2)):
@@ -145,7 +158,7 @@ def _build_ids() -> dict[str, int]:
         for i in range(1, MAX_MILESTONES + 1):
             ids[milestone_name(step * i)] = BASE_ID + step * i
     per_group: dict[str, int] = {}
-    for spec in build_check_specs(0, 1, True, True, True, seasons=True):
+    for spec in build_check_specs(0, 1, True, True, True, seasons=True, sample_points=True):
         index = per_group.get(spec.group, 0)
         assert index < 100, f"group {spec.group} overflowed its id block"
         per_group[spec.group] = index + 1
@@ -156,7 +169,8 @@ def _build_ids() -> dict[str, int]:
 LOCATION_NAME_TO_ID = _build_ids()
 
 LOCATION_GROUPS: dict[str, set[str]] = {}
-for _spec in build_check_specs(MAX_MILESTONES, max(MILESTONE_STEPS), True, True, True, seasons=True):
+for _spec in build_check_specs(MAX_MILESTONES, max(MILESTONE_STEPS), True, True, True, seasons=True,
+                                sample_points=True):
     if _spec.group != "Milestones":
         LOCATION_GROUPS.setdefault(_spec.group, set()).add(_spec.name)
 LOCATION_GROUPS["Milestones"] = {name for name in LOCATION_NAME_TO_ID if name.startswith("Correct Answers: ")}

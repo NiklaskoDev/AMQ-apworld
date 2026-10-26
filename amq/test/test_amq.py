@@ -4,8 +4,9 @@ from test.bases import WorldTestBase
 
 from ..items import (
     BASE_ID, BROAD_GENRES, CLOCK, DECADES, DECADE_ITEMS, FRAGMENT, GAME_NAME, GENRE_ITEMS, ITEM_NAME_TO_ID, LENS,
+    SAMPLE_ITEMS, SONG_TYPE_ITEMS,
 )
-from ..locations import LOCATION_GROUPS, LOCATION_NAME_TO_ID
+from ..locations import EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID
 
 
 class AMQTestBase(WorldTestBase):
@@ -87,6 +88,9 @@ class TestStableIds(AMQTestBase):
         self.assertEqual(ITEM_NAME_TO_ID["Genre Key: Action"], BASE_ID + 20)
         self.assertEqual(ITEM_NAME_TO_ID[FRAGMENT], BASE_ID + 71)
         self.assertEqual(ITEM_NAME_TO_ID[CLOCK], BASE_ID + 72)
+        self.assertEqual(ITEM_NAME_TO_ID["Sample Pass: Middle"], BASE_ID + 73)
+        self.assertEqual(LOCATION_NAME_TO_ID["Bounce Back: 5 Correct Right After a Miss"], BASE_ID + 3000)
+        self.assertEqual(LOCATION_NAME_TO_ID["Start Sample: 10 Correct"], BASE_ID + 3100)
         self.assertEqual(LOCATION_NAME_TO_ID["Correct Answers: 120"], BASE_ID + 120)
         self.assertEqual(LOCATION_NAME_TO_ID["First Correct Opening"], BASE_ID + 2000)
         self.assertEqual(LOCATION_NAME_TO_ID["Genre Scholar: Action"], BASE_ID + 2200)
@@ -120,6 +124,73 @@ class TestSeasonChecksOff(AMQTestBase):
     def test_absent(self) -> None:
         names = {loc.name for loc in self.multiworld.get_locations(1)}
         self.assertFalse(names & LOCATION_GROUPS["Seasons"])
+
+
+class TestComebacksAndSamplePoints(AMQTestBase):
+    def test_defaults(self) -> None:
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertLessEqual(LOCATION_GROUPS["Comebacks"], names, "comebacks come with challenge_checks")
+        self.assertFalse(names & LOCATION_GROUPS["Sample Points"], "sample points are opt-in")
+        self.assertEqual(self.get_items_by_name("Sample Pass: Middle"), [])
+
+
+class TestSamplePointGated(AMQTestBase):
+    options = {"unlock_categories": ["Song Types", "Decades", "Genres", "Formats", "Rarity", "Sample Point"]}
+
+    def test_passes(self) -> None:
+        self.assertEqual(len(self.get_items_by_name(SAMPLE_ITEMS["End"])), 1)
+        self.collect_by_name(FRAGMENT)
+        self.assertTrue(self.can_reach_location("Start Sample: 10 Correct"))
+        self.assertFalse(self.can_reach_location("End Sample: 10 Correct"))
+        self.collect_by_name(SAMPLE_ITEMS["End"])
+        self.assertTrue(self.can_reach_location("End Sample: 10 Correct"))
+
+
+class TestScholarGoal(AMQTestBase):
+    options = {"goal": "scholar"}
+
+    def test_needs_every_genre(self) -> None:
+        start = {i.name for i in self.multiworld.precollected_items[1]}
+        missing = next(item for item in GENRE_ITEMS.values() if item not in start)
+        self.collect_all_but([missing])
+        self.assertFalse(self.can_reach_location(EVENT_FINALE))
+        self.collect_by_name(missing)
+        self.assertTrue(self.can_reach_location(EVENT_FINALE))
+        data = self.amq().fill_slot_data()
+        self.assertEqual((data["goal"], data["goal_kinds"]), ("scholar", ["genre"]))
+
+
+class TestSpecialistGoal(AMQTestBase):
+    options = {"goal": "specialist", "starting_song_type": "opening"}
+
+    def test_needs_every_song_type(self) -> None:
+        self.collect_all_but([SONG_TYPE_ITEMS["Ending"]])
+        self.assertFalse(self.can_reach_location(EVENT_FINALE))
+        self.collect_by_name(SONG_TYPE_ITEMS["Ending"])
+        self.assertTrue(self.can_reach_location(EVENT_FINALE))
+
+
+class TestUniversalTracker(AMQTestBase):
+    """Universal Tracker rebuilds the world from slot data alone; it must come out the same."""
+    options = {"challenge_checks": False, "multiplayer_checks": True, "milestone_count": 5, "fragments_required": 30,
+               "unlock_categories": ["Decades", "Sample Point"], "song_source": "mixed", "goal": "scholar",
+               "trap_link": True}
+
+    def test_rebuild_from_slot_data(self) -> None:
+        world = self.amq()
+        data = world.fill_slot_data()
+        json.dumps(data)
+        self.assertTrue(data["trap_link"])
+        before = [s.name for s in world.specs]
+        o = world.options
+        o.challenge_checks.value, o.multiplayer_checks.value, o.milestone_count.value = 1, 0, 10
+        o.unlock_categories.value = set()
+        o.song_source.value = 0
+        self.multiworld.re_gen_passthrough = {GAME_NAME: world.interpret_slot_data(data)}
+        world.generate_early()
+        self.assertEqual([s.name for s in world.specs], before)
+        self.assertEqual(world.gated, {"Decades", "Sample Point"})
+        self.assertEqual(o.goal.current_key, "scholar")
 
 
 LIST_CHECKS = {"Home Turf: 10 Correct from Your List", "Uncharted: 10 Correct off Your List",

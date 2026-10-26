@@ -5,11 +5,13 @@ import math
 from typing import Any
 
 from BaseClasses import CollectionState, Item, ItemClassification, Region, Tutorial
+from Options import OptionSet
 from worlds.AutoWorld import WebWorld, World
 
 from .items import (
     AMQItem, BROAD_GENRES, CLOCK, DECADES, DECADE_ITEMS, FILLER_WEIGHTS, FORMAT_ITEMS, FRAGMENT, GAME_NAME, GENRES,
-    GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, RARITY_TIERS, SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
+    GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, RARITY_TIERS, SAMPLE_ITEMS, SONG_TYPE_ITEMS,
+    SONG_TYPES, TRAPS,
 )
 from .locations import (
     AMQLocation, CheckSpec, EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID, MAX_MILESTONES, Req, STAGES,
@@ -17,7 +19,15 @@ from .locations import (
 )
 from .options import AMQOptions, OPTION_GROUPS, SongSource
 
-CLIENT_VERSION = 4
+CLIENT_VERSION = 5
+# goals that need every check of these kinds on top of the fragments
+GOAL_KINDS = {"scholar": {"genre"}, "specialist": {"type"}}
+# options that shape the locations, rules or pool; sent in slot data so Universal Tracker can rebuild the world
+TRACKER_OPTIONS = [
+    "goal", "unlock_categories", "fragments_required", "fragment_extra_percent", "milestone_count", "milestone_step",
+    "challenge_checks", "multiplayer_checks", "season_checks", "song_source", "free_difficulty_tiers",
+    "guess_time_items", "starting_decades", "starting_genres",
+]
 
 logger = logging.getLogger("Anime Music Quiz")
 
@@ -57,8 +67,19 @@ class AMQWorld(World):
     starting: list[str]
     fragment_total: int
 
+    ut_can_gen_without_yaml = True  # Universal Tracker: everything needed comes from slot data
+
+    @staticmethod
+    def interpret_slot_data(slot_data: dict[str, Any]) -> dict[str, Any]:
+        return slot_data
+
     def generate_early(self) -> None:
         o = self.options
+        passthrough = getattr(self.multiworld, "re_gen_passthrough", {}).get(self.game)
+        if passthrough and "tracker" in passthrough:
+            for name, value in passthrough["tracker"].items():
+                option = getattr(o, name)
+                option.value = set(value) if isinstance(option, OptionSet) else value
         self.gated = set(o.unlock_categories.value)
         self._fix_difficulty_floors()
         self.starting = self._pick_starting()
@@ -70,11 +91,12 @@ class AMQWorld(World):
         def specs_for(milestones: int) -> list[CheckSpec]:
             return build_check_specs(milestones, o.milestone_step.value, bool(o.challenge_checks),
                                      bool(o.multiplayer_checks), o.song_source.value == SongSource.option_mixed,
-                                     o.free_difficulty_tiers.value, bool(o.season_checks))
+                                     o.free_difficulty_tiers.value, bool(o.season_checks),
+                                     "Sample Point" in self.gated)
 
         milestones = o.milestone_count.value
         self.specs = specs_for(milestones)
-        while len(self.specs) < needed and milestones < MAX_MILESTONES:
+        while len(self.specs) < needed and milestones < MAX_MILESTONES and not passthrough:
             milestones += 1
             self.specs = specs_for(milestones)
         if milestones != o.milestone_count.value:
@@ -133,6 +155,8 @@ class AMQWorld(World):
             names += [LENS] * (len(RARITY_TIERS) - self.options.free_difficulty_tiers.value)
         if "Guess Time" in self.gated:
             names += [CLOCK] * self.options.guess_time_items.value
+        if "Sample Point" in self.gated:
+            names += SAMPLE_ITEMS.values()
         return names
 
     def create_item(self, name: str) -> Item:
@@ -157,6 +181,8 @@ class AMQWorld(World):
                              (lambda state, n=needed: state.has(FRAGMENT, self.player, n)) if needed else None)
             previous = region
 
+        goal_targets: list[AMQLocation] = []
+        goal_kinds = GOAL_KINDS.get(self.options.goal.current_key, set())
         for spec in self.specs:
             region = stages[spec.stage]
             location = AMQLocation(self.player, spec.name, LOCATION_NAME_TO_ID[spec.name], region)
@@ -164,11 +190,15 @@ class AMQWorld(World):
             if reqs:
                 location.access_rule = self._rule(reqs)
             region.locations.append(location)
+            if spec.kind in goal_kinds:
+                goal_targets.append(location)
 
         finale = Region("Grand Finale", self.player, self.multiworld)
         self.multiworld.regions.append(finale)
         menu.connect(finale, "Enter Grand Finale", lambda state: state.has(FRAGMENT, self.player, required))
         event = AMQLocation(self.player, EVENT_FINALE, None, finale)
+        if goal_targets:
+            event.access_rule = lambda state: all(loc.can_reach(state) for loc in goal_targets)
         event.place_locked_item(AMQItem("Victory", ItemClassification.progression, None, self.player))
         finale.locations.append(event)
 
@@ -202,7 +232,8 @@ class AMQWorld(World):
         o = self.options
         return {
             "client_version": CLIENT_VERSION,
-            "goal": "finale" if o.goal.value == 1 else "fragments",
+            "goal": o.goal.current_key,
+            "goal_kinds": sorted(GOAL_KINDS.get(o.goal.current_key, set())),
             "fragments_required": o.fragments_required.value,
             "stages": STAGES,
             "stage_fragments": stage_fragments(o.fragments_required.value),
@@ -217,5 +248,8 @@ class AMQWorld(World):
             "trap_duration": o.trap_duration.value,
             "death_link": bool(o.death_link),
             "death_link_misses": o.death_link_misses.value,
+            "trap_link": bool(o.trap_link),
+            "tracker": {name: (sorted(getattr(o, name).value) if isinstance(getattr(o, name), OptionSet)
+                               else getattr(o, name).value) for name in TRACKER_OPTIONS},
             "checks": [s.client_dict(LOCATION_NAME_TO_ID[s.name]) for s in self.specs],
         }

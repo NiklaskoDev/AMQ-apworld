@@ -20,9 +20,11 @@ Archipelago server, so you can switch browsers without losing anything or gettin
 ## Playing
 
 * Open the **Lobby settings** section of the panel. As the room host, press **Apply to room** (or type `/ap lobby` in
-  chat) to set song types, vintage range, anime type, song difficulty, genres (as "optional"), guess time (if it is
-  locked and the room's is too long) and, for `own_list`, song selection to match your unlocks. Only locked categories are changed. Anything it cannot set (for example two
-  separate vintage ranges) is listed so you can set it by hand. Songs outside your unlocks still play but are ignored.
+  chat) to set song types, vintage range, anime type, song difficulty, genres (as "optional"), guess time and
+  sample point (when they are locked and the room's is not allowed) and, for `own_list`, song selection to match your
+  unlocks. Only locked categories are changed. Anything it cannot set (for example two separate vintage ranges) is
+  listed so you can set it by hand. Songs outside your unlocks still play but are ignored, and the client warns you
+  in chat when most of a game's songs don't count.
 * Type `/ap help` in AMQ's chat for the chat commands. `/ap !hint <item>` and other server commands work there.
 * With `song_source: own_list` or `mixed`, link your anime list in AMQ and set the lobby's song selection to
   "watched" or a mix. The panel marks each song as "on list" or "off list".
@@ -35,6 +37,11 @@ Archipelago server, so you can switch browsers without losing anything or gettin
 
 Generate a template with the Archipelago Launcher's "Generate Template Options", edit it and generate as usual.
 If your options produce more items than checks, `milestone_count` is raised automatically (a warning is logged).
+
+## Tracking
+
+[Universal Tracker](https://github.com/FarisTheAncient/Archipelago/releases) works with this world without your YAML:
+connect it to your slot and it shows which checks are in logic.
 
 ## Troubleshooting
 

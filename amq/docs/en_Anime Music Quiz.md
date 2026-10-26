@@ -23,6 +23,7 @@ Items are unlocks that live in the multiworld:
   Both the boundaries and the number of free tiers are options (see below).
 * **Mixtape Fragments**: open the later stages and, once you have enough, the Grand Finale
 * **Progressive Guess Time** (only with `Guess Time` in `unlock_categories`, see below)
+* **Sample Passes**: Middle, End, Random (only with `Sample Point` in `unlock_categories`, see below)
 
 You start with one song type (Opening by default), two neighbouring decades, four genres (at least one of them broad)
 and TV. Categories you leave out of `unlock_categories` are simply always open.
@@ -59,6 +60,14 @@ pool. A random guess time is judged by the top of its range; extra guess time is
 longer timer, since a shorter one always works, so these items are useful rather than progression. If the client
 cannot read the room's timer it counts songs anyway and says so once.
 
+## Sample point
+
+Add `Sample Point` to `unlock_categories` (not in the default) to lock the room's sample point setting. Start is
+always open; Sample Passes unlock Middle, End and Random (any random range counts as Random). Songs played at a
+locked sample point are ignored. Each sample point also gets a check for 10 correct songs played at it. Apply to
+room switches a locked sample point back to Start. If the client cannot read the room's sample point it counts songs
+anyway, but sample point checks cannot progress.
+
 ## Stages
 
 Checks are spread over four stages. A check in a locked stage keeps counting progress but is only sent once you hold
@@ -84,10 +93,14 @@ Everything is detected from songs you answer in the real game:
   Genre Sampler (several genres)
 * Seasons (`season_checks`, on by default): 10 correct songs from each airing season (Winter, Spring, Summer, Fall)
   and Four Seasons (all four in one game). Seasons are never locked by items.
+* Comebacks (with `challenge_checks`): Bounce Back (correct answers right after a miss), Comeback (5 in a row after
+  missing 3 in a row in one game) and Strong Finish (end a game on a 5- or 10-song streak)
+* Sample points (only with `Sample Point` locked): 10 correct songs at each sample point
 * Optional multiplayer placements (podium with 4+ players, wins, wins with 8+ players)
 
 Songs outside your current unlocks are ignored: they don't count and don't break streaks. The client tells you why
-a song was ignored and shows lobby settings that match your unlocks.
+a song was ignored and shows lobby settings that match your unlocks. If at least 5 songs have played in a game and
+three in five of them didn't count, it warns you once in AMQ's chat and names the most common reason.
 
 ## Other items
 
@@ -119,6 +132,13 @@ Type `/ap <message>` in AMQ's chat to talk to the multiworld; server commands wo
 `/ap !remaining`. `/ap lobby` applies your unlocks to the room settings and `/ap help` lists the commands. These lines
 are not sent to the AMQ room.
 
+## Trap Link
+
+With `trap_link` on, traps you receive are also sent to every other game using Trap Link, and theirs reach you as
+the closest trap here, matched by name: muting or silence becomes a Mute Trap, confusion or reversal a Reverse
+Typing Trap, blur, darkness or shrinking a Tiny Text Trap, money or tax a Tax Collector Trap, resets, freezes and
+stuns a Streak Wipe Trap. Trap kinds with no match are ignored (the panel log says so).
+
 ## Death Link
 
 With `death_link` on, missing `death_link_misses` eligible songs in a row (default 3) sends a death. Receiving one
@@ -126,5 +146,18 @@ wipes your streak and mutes the next song.
 
 ## Goal
 
-Collect the required Mixtape Fragments. With the `finale` goal (default) you must then also play one finale game:
-at least `finale_songs` counted songs at `finale_accuracy` percent or better.
+Every goal needs the required Mixtape Fragments. On top of that:
+
+| `goal` | Also needed |
+| --- | --- |
+| `fragments` | nothing |
+| `finale` (default) | one finale game: at least `finale_songs` counted songs at `finale_accuracy` percent or better |
+| `scholar` | every Genre Scholar check (so every Genre Key, if genres are locked) |
+| `specialist` | every song type check: First Correct and both Specialist checks for Opening, Ending and Insert Song |
+
+The panel shows how many of the goal's checks are done. Checks collected by another client also count.
+
+## Universal Tracker
+
+The world can be rebuilt from its slot data, so Universal Tracker can show which checks are in logic without your
+YAML.

@@ -8,16 +8,20 @@ from Options import (
 from .items import TRAPS
 
 GATING_CATEGORIES = ["Song Types", "Decades", "Genres", "Formats", "Rarity"]
-OPTIONAL_CATEGORIES = ["Guess Time"]  # valid, but not locked unless asked for
+OPTIONAL_CATEGORIES = ["Guess Time", "Sample Point"]  # valid, but not locked unless asked for
 
 
 class Goal(Choice):
     """
     Fragments: collect the required Mixtape Fragments.
-    Finale: collect the fragments, then also win one "finale" game (see finale_songs / finale_accuracy)."""
+    Finale: collect the fragments, then also win one "finale" game (see finale_songs / finale_accuracy).
+    Scholar: collect the fragments and complete every Genre Scholar check.
+    Specialist: collect the fragments and complete every song type check (First Correct and Specialist)."""
     display_name = "Goal"
     option_fragments = 0
     option_finale = 1
+    option_scholar = 2
+    option_specialist = 3
     default = 1
 
 
@@ -59,7 +63,9 @@ class UnlockCategories(OptionSet):
     These mirror the filters in the lobby settings: song types, vintage, genres, anime type and song difficulty.
     Rarity uses the difficulty tiers below: the free tiers are open, Progressive Rarity Lenses unlock the rest.
     Guess Time (not in the default) caps the room's guess time: songs only count when the room's timer is at most
-    the allowed time, and each Progressive Guess Time raises it (see guess_time_start / guess_time_step)."""
+    the allowed time, and each Progressive Guess Time raises it (see guess_time_start / guess_time_step).
+    Sample Point (not in the default) locks the room's sample point setting: Start is open, Sample Passes unlock
+    Middle, End and Random, and each adds a check for 10 correct songs at that sample point."""
     display_name = "Unlock Categories"
     valid_keys = frozenset(GATING_CATEGORIES + OPTIONAL_CATEGORIES)
     default = frozenset(GATING_CATEGORIES)
@@ -195,6 +201,12 @@ class MultiplayerChecks(Toggle):
     display_name = "Multiplayer Checks"
 
 
+class TrapLink(Toggle):
+    """Share traps with other TrapLink games: traps you receive are sent to them, and theirs are turned into the
+    closest trap here (unknown kinds are ignored)."""
+    display_name = "Trap Link"
+
+
 class DeathLinkMisses(Range):
     """With Death Link on, missing this many eligible songs in a row sends a death.
     A received death wipes your streak and mutes the next song."""
@@ -255,6 +267,7 @@ class AMQOptions(PerGameCommonOptions):
     trap_percentage: TrapPercentage
     trap_weights: TrapWeights
     trap_duration: TrapDuration
+    trap_link: TrapLink
     death_link: DeathLink
     death_link_misses: DeathLinkMisses
     start_inventory_from_pool: StartInventoryPool
@@ -266,6 +279,6 @@ OPTION_GROUPS = [
     OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers, GuessTimeStart, GuessTimeStep,
                                GuessTimeItems]),
     OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, SeasonChecks, MultiplayerChecks]),
-    OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration]),
+    OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration, TrapLink]),
     OptionGroup("Death Link", [DeathLink, DeathLinkMisses]),
 ]

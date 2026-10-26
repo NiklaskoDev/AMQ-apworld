@@ -11,10 +11,11 @@ categories (Opening, 1990s, Comedy, ...).
 The lobby filters become progression. Song types, decades, genres, anime formats and song-difficulty tiers are locked
 behind items, and songs outside your unlocks don't count. Correct guesses send checks: cumulative milestones,
 per-category counts, streaks, flawless starts, variety challenges (Triple Threat, Time Capsule, Genre Sampler),
-seasons, marathons and optional multiplayer placements. `song_source` lets each player choose whether any song counts,
+seasons, comebacks, marathons and optional multiplayer placements. `song_source` lets each player choose whether any song counts,
 only songs from their own anime list (strict), or a mix with extra on-list/off-list checks. The difficulty tier
-boundaries and how many tiers start unlocked are configurable too, and an optional Guess Time category starts you on
-a short timer that Progressive Guess Time items lengthen. Mixtape Fragments open later stages and the Grand Finale. Traps (mute,
+boundaries and how many tiers start unlocked are configurable too, and the optional Guess Time and Sample Point categories
+lock the room's timer and sample point too. Goals: fragments, a finale game, every Genre Scholar check or every song
+type check. Trap Link and Universal Tracker are supported. Mixtape Fragments open later stages and the Grand Finale. Traps (mute,
 reversed or tiny answer box, streak wipe, tax) are cosmetic and applied by the userscript. Death Link is supported.
 The userscript can apply your unlocks to the room settings in one click, shows what each open check holds, and
 bridges multiworld chat into AMQ's chat (`/ap !hint ...` works from there).
