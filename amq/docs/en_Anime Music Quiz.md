@@ -25,6 +25,16 @@ Items are unlocks that live in the multiworld:
 You start with one song type (Opening by default), two neighbouring decades, four genres (at least one of them broad)
 and TV. Categories you leave out of `unlock_categories` are simply always open.
 
+## Song source
+
+`song_source` decides which songs count, based on the anime list linked to your AMQ account:
+
+| Value | Effect | Lobby song selection |
+| --- | --- | --- |
+| `any` (default) | Every song counts, wherever it comes from. | anything |
+| `own_list` | Strict: only songs from your own list count; others are ignored and don't break streaks. | watched only |
+| `mixed` | Every song counts, plus extra checks: Home Turf (correct on-list songs), Uncharted (correct off-list songs) and Best of Both (both in one game). | a mix of watched and random |
+
 ## Stages
 
 Checks are spread over four stages. A check in a locked stage keeps counting progress but is only sent once you hold

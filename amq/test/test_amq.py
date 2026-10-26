@@ -89,12 +89,42 @@ class TestStableIds(AMQTestBase):
         self.assertEqual(LOCATION_NAME_TO_ID["Correct Answers: 120"], BASE_ID + 120)
         self.assertEqual(LOCATION_NAME_TO_ID["First Correct Opening"], BASE_ID + 2000)
         self.assertEqual(LOCATION_NAME_TO_ID["Genre Scholar: Action"], BASE_ID + 2200)
+        self.assertEqual(LOCATION_NAME_TO_ID["Home Turf: 10 Correct from Your List"], BASE_ID + 2800)
         self.assertEqual(len(set(LOCATION_NAME_TO_ID.values())), len(LOCATION_NAME_TO_ID))
         self.assertEqual(len(set(ITEM_NAME_TO_ID.values())), len(ITEM_NAME_TO_ID))
 
     def test_groups_cover_everything(self) -> None:
         grouped = set().union(*LOCATION_GROUPS.values())
         self.assertEqual(grouped, set(LOCATION_NAME_TO_ID))
+
+
+LIST_CHECKS = {"Home Turf: 10 Correct from Your List", "Uncharted: 10 Correct off Your List",
+               "Best of Both: 5 On-List and 5 Off-List in One Game"}
+
+
+class TestSongSourceAny(AMQTestBase):
+    def test_no_list_checks(self) -> None:
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertFalse(names & LIST_CHECKS)
+        self.assertEqual(self.amq().fill_slot_data()["song_source"], "any")
+
+
+class TestSongSourceOwnList(AMQTestBase):
+    options = {"song_source": "own_list"}
+
+    def test_strict_mode_has_no_list_checks(self) -> None:
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertFalse(names & LIST_CHECKS)
+        self.assertEqual(self.amq().fill_slot_data()["song_source"], "own_list")
+
+
+class TestSongSourceMixed(AMQTestBase):
+    options = {"song_source": "mixed"}
+
+    def test_list_checks_added(self) -> None:
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertLessEqual(LIST_CHECKS, names)
+        self.assertEqual(self.amq().fill_slot_data()["song_source"], "mixed")
 
 
 class TestMinimal(AMQTestBase):

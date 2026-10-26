@@ -50,12 +50,14 @@ ok('10 eligible answers sent the stage-0 checks and held back stage-1 ones');
 await until('server confirms checks', () => fs.existsSync(process.env.AP_SERVER_LOG || '') ? fs.readFileSync(process.env.AP_SERVER_LOG, 'utf8').includes('(Correct Answers: 10)') : true);
 ok('server logged the found items');
 
+// items from the first checks (a Streak Wipe or Tax Collector Trap, say) may have landed by now, so compare relatively
+const [totalBefore, streakBefore] = [S.prog.total, S.game.streak];
 a.fire('answer results', song({ type: 2 }));
 assert.match(S.lastSong, /ignored \(Ending locked\)/);
 a.fire('answer results', song({ difficulty: 'Unrated' }));
 assert.match(S.lastSong, /ignored \(unrated difficulty\)/);
-assert.equal(S.prog.total, 10);
-assert.equal(S.game.streak, 10);
+assert.equal(S.prog.total, totalBefore);
+assert.equal(S.game.streak, streakBefore);
 ok('locked song type and unrated difficulty are ignored without breaking the streak');
 
 for (let i = 0; i < 3; i++) a.fire('answer results', song({ correct: false }));

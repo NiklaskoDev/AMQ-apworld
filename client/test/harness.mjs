@@ -44,7 +44,7 @@ export async function loadClient({ WebSocket, storage = new Map(), selfId = 0 } 
 
 /** An "answer results" payload. Placeholder strings only: no real titles or songs. */
 export function answer({ type = 1, year = 2005, format = 'TV', difficulty = 45.5, genres = ['Action'],
-  correct = true, scores = [0, 0] } = {}) {
+  correct = true, scores = [0, 0], listStatus = undefined } = {}) {
   return {
     songInfo: {
       type, typeNumber: 1, vintage: `Spring ${year}`, animeType: format, animeDifficulty: difficulty,
@@ -52,7 +52,7 @@ export function answer({ type = 1, year = 2005, format = 'TV', difficulty = 45.5
       songName: 'Placeholder', artist: 'Placeholder', altAnimeNames: [], altAnimeNamesAnswers: [],
     },
     players: [
-      { gamePlayerId: 0, correct, score: scores[0] },
+      { gamePlayerId: 0, correct, score: scores[0], listStatus },
       { gamePlayerId: 1, correct: false, score: scores[1] },
     ],
   };

@@ -224,3 +224,45 @@ test('no scheme tries wss first and falls back to ws', async () => {
   assert.deepEqual(FakeSocket.instances.map(s => s.url), ['wss://localhost:38281', 'ws://localhost:38281']);
   c.api.disconnect();
 });
+
+const LIST_CHECKS = [
+  { id: 2800, name: 'Home Turf: 10 Correct from Your List', kind: 'list_on', n: 2, stage: 0 },
+  { id: 2803, name: 'Uncharted: 10 Correct off Your List', kind: 'list_off', n: 2, stage: 0 },
+  { id: 2806, name: 'Best of Both', kind: 'game_list_mix', n: 1, stage: 0 },
+];
+
+test('song_source any: list status is irrelevant', async () => {
+  const { fire, S } = await connected();
+  fire('answer results', answer({ listStatus: 1 }));
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 2);
+  assert.doesNotMatch(S.lastSong, /list/);
+});
+
+test('song_source own_list: strict, off-list songs are ignored and keep the streak', async () => {
+  const { fire, S, api } = await connected({ slot: { song_source: 'own_list' } });
+  fire('answer results', answer({ listStatus: 1 }));
+  assert.match(S.lastSong, /on list → counted/);
+  fire('answer results', answer({ listStatus: null }));
+  assert.match(S.lastSong, /ignored \(not on your list\)/);
+  fire('answer results', answer({ listStatus: 0, correct: false }));
+  assert.equal(S.prog.total, 1);
+  assert.equal(S.game.streak, 1);
+  const guide = Object.fromEntries(JSON.parse(JSON.stringify(api.lobbyGuide())));
+  assert.equal(guide['Song selection'], 'watched only (your list)');
+});
+
+test('song_source mixed: everything counts and list checks track both sides', async () => {
+  const { ws, fire, S } = await connected({ slot: { song_source: 'mixed', checks: [...CHECKS, ...LIST_CHECKS] } });
+  sentChecks(ws);
+  fire('quiz ready', {});
+  fire('answer results', answer({ listStatus: 2 }));
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 2800), []);
+  fire('answer results', answer());
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 2800), [2806], 'one of each in a game');
+  fire('answer results', answer({ listStatus: 'watching' }));
+  fire('answer results', answer({ listStatus: false }));
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 2800).sort(), [2800, 2803]);
+  assert.equal(S.prog.total, 4);
+  assert.match(S.lastSong, /off list → counted/);
+});

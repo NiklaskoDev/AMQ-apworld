@@ -63,6 +63,19 @@ class UnlockCategories(OptionSet):
     default = frozenset(GATING_CATEGORIES)
 
 
+class SongSource(Choice):
+    """
+    Which songs count, based on your linked anime list (set the lobby's song selection to match).
+    Any: every song counts, wherever it comes from.
+    Own List: strict, only songs from your own list count; others are ignored.
+    Mixed: every song counts, and extra checks reward correct answers both on and off your list."""
+    display_name = "Song Source"
+    option_any = 0
+    option_own_list = 1
+    option_mixed = 2
+    default = 0
+
+
 class StartingSongType(Choice):
     """Which song type you begin with (only matters if Song Types are locked)."""
     display_name = "Starting Song Type"
@@ -159,6 +172,7 @@ class AMQOptions(PerGameCommonOptions):
     starting_song_type: StartingSongType
     starting_decades: StartingDecades
     starting_genres: StartingGenres
+    song_source: SongSource
     milestone_count: MilestoneCount
     milestone_step: MilestoneStep
     challenge_checks: ChallengeChecks
@@ -173,7 +187,7 @@ class AMQOptions(PerGameCommonOptions):
 
 OPTION_GROUPS = [
     OptionGroup("Goal", [Goal, FragmentsRequired, FragmentExtraPercent, FinaleSongs, FinaleAccuracy]),
-    OptionGroup("Unlocks", [UnlockCategories, StartingSongType, StartingDecades, StartingGenres]),
+    OptionGroup("Unlocks", [UnlockCategories, SongSource, StartingSongType, StartingDecades, StartingGenres]),
     OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, MultiplayerChecks]),
     OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration]),
     OptionGroup("Death Link", [DeathLink, DeathLinkMisses]),

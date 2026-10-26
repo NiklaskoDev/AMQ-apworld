@@ -22,6 +22,8 @@ Archipelago server, so you can switch browsers without losing anything or gettin
 * Open the **Lobby settings** section of the panel and set your room's filters to match: song types, vintage range,
   anime type, song difficulty and genres (set your unlocked genres to "optional"). Songs outside your unlocks still
   play but are ignored.
+* With `song_source: own_list` or `mixed`, link your anime list in AMQ and set the lobby's song selection to
+  "watched" or a mix. The panel marks each song as "on list" or "off list".
 * Play solo or with friends. Spectating does nothing.
 * **Open checks** lists what is left, your progress and which stage still needs fragments.
 * The panel shows each song's result, for example `Opening · 2010s · TV · Medium → counted` or

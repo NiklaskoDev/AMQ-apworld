@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.2.0
+// @version      0.3.0
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
@@ -40,11 +40,12 @@
   // ---------- state ----------
   const freshProgress = () => ({
     v: 1, total: 0, type: {}, decade: {}, genre: {}, format: {}, rarity: {},
+    listOn: 0, listOff: 0,
     processed: 0, encore: 0, shield: 0, traps: { mute: 0, reverse: 0, tiny: 0 }, finaleDone: false,
   });
   const freshGame = () => ({
     songs: 0, eligible: 0, eligibleCorrect: 0, streak: 0, best: 0, missRun: 0,
-    types: new Set(), decades: new Set(), genres: new Set(), standing: null, finalized: false,
+    types: new Set(), decades: new Set(), genres: new Set(), listOn: 0, listOff: 0, standing: null, finalized: false,
   });
   const S = {
     ws: null, connected: false, ready: false, manualClose: false, retries: 0, retryTimer: null,
@@ -112,6 +113,8 @@
     const score = x => (typeof x.score === 'number' ? x.score : 0);
     return {
       correct: me.correct === true,
+      // listStatus is set (watching, completed, ...) when the song's anime is on this player's linked list
+      onList: !!me.listStatus,
       rank: 1 + players.filter(x => score(x) > score(me)).length, // ties share the better rank
       count: nexus ? 1 : players.length,
     };
@@ -142,8 +145,10 @@
   const maxTier = () => (gated('Rarity') ? Math.min(TIERS.length - 1, FREE_TIERS - 1 + S.unlocks.lens) : TIERS.length - 1);
   const genreCounts = g => !gated('Genres') || S.unlocks.genres.has(g);
   /** Returns null when the song counts, otherwise a short reason. */
-  function ineligibleReason(song) {
+  const songSource = () => (S.data && S.data.song_source) || 'any';
+  function ineligibleReason(song, own) {
     const U = S.unlocks;
+    if (songSource() === 'own_list' && !own.onList) return 'not on your list';
     if (gated('Song Types') && !U.types.has(song.type)) return song.type ? `${song.type} locked` : 'unknown song type';
     if (gated('Decades') && !U.decades.has(song.decade)) return song.decade ? `${song.decade} locked` : 'unknown year';
     if (gated('Formats') && !U.formats.has(song.format)) return song.format ? `${song.format} locked` : 'unknown format';
@@ -355,7 +360,7 @@
     const g = S.game;
     g.songs++;
     g.standing = { rank: own.rank, count: own.count };
-    const reason = ineligibleReason(song);
+    const reason = ineligibleReason(song, own);
     let status;
     if (reason) {
       status = `ignored (${reason})`;
@@ -370,6 +375,7 @@
         bump(S.prog.rarity, song.tier);
         song.genres.filter(genreCounts).forEach(x => { bump(S.prog.genre, x); g.genres.add(x); });
         g.types.add(song.type); g.decades.add(song.decade);
+        if (own.onList) { S.prog.listOn++; g.listOn++; } else { S.prog.listOff++; g.listOff++; }
         status = weight === 2 ? 'counted x2 (Encore)' : 'counted';
       } else if (S.prog.shield > 0) {
         S.prog.shield--;
@@ -380,7 +386,8 @@
         if (S.data.death_link && g.missRun >= S.data.death_link_misses) { g.missRun = 0; sendDeath(); }
       }
     }
-    S.lastSong = [song.type, song.decade, song.format, song.tier].filter(Boolean).join(' · ') + ' → ' + status;
+    const origin = songSource() === 'any' ? null : own.onList ? 'on list' : 'off list';
+    S.lastSong = [song.type, song.decade, song.format, song.tier, origin].filter(Boolean).join(' · ') + ' → ' + status;
     tickTraps();
     evaluate();
     saveProg();
@@ -412,6 +419,9 @@
       case 'game_types': return [g.types.size, c.n];
       case 'game_decades': return [g.decades.size, c.n];
       case 'game_genres': return [g.genres.size, c.n];
+      case 'list_on': return [P.listOn, c.n];
+      case 'list_off': return [P.listOff, c.n];
+      case 'game_list_mix': return [Math.min(g.listOn, g.listOff), c.n];
       case 'mp_podium': return [final && g.standing && g.standing.count >= c.n && g.standing.rank <= 3 ? 1 : 0, 1];
       case 'mp_win': return [final && g.standing && g.standing.count >= c.n && g.standing.rank === 1 ? 1 : 0, 1];
     }
@@ -463,6 +473,7 @@
       ['Anime type', list('Formats', U.formats, FORMATS)],
       ['Difficulty', `${TIER_FLOOR[TIERS[maxTier()]]}–100%`],
       ['Genres (optional)', list('Genres', U.genres, GENRES)],
+      ['Song selection', { any: 'any', own_list: 'watched only (your list)', mixed: 'mix of watched and random' }[songSource()] || 'any'],
     ];
   }
 

@@ -15,7 +15,7 @@ from .locations import (
     AMQLocation, CheckSpec, EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID, MAX_MILESTONES, Req, STAGES,
     build_check_specs, stage_fragments,
 )
-from .options import AMQOptions, OPTION_GROUPS
+from .options import AMQOptions, OPTION_GROUPS, SongSource
 
 CLIENT_VERSION = 2
 
@@ -67,8 +67,8 @@ class AMQWorld(World):
         needed = len(self._unlock_items()) + required + extra
 
         def specs_for(milestones: int) -> list[CheckSpec]:
-            return build_check_specs(milestones, o.milestone_step.value,
-                                     bool(o.challenge_checks), bool(o.multiplayer_checks))
+            return build_check_specs(milestones, o.milestone_step.value, bool(o.challenge_checks),
+                                     bool(o.multiplayer_checks), o.song_source.value == SongSource.option_mixed)
 
         milestones = o.milestone_count.value
         self.specs = specs_for(milestones)
@@ -194,6 +194,7 @@ class AMQWorld(World):
             "finale_songs": o.finale_songs.value,
             "finale_accuracy": o.finale_accuracy.value,
             "gated": sorted(self.gated),
+            "song_source": o.song_source.current_key,
             "trap_duration": o.trap_duration.value,
             "death_link": bool(o.death_link),
             "death_link_misses": o.death_link_misses.value,
