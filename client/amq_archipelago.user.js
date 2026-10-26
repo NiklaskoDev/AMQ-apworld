@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.5.0
+// @version      0.6.0
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
@@ -15,7 +15,7 @@
   'use strict';
 
   const GAME = 'Anime Music Quiz';
-  const CLIENT_VERSION = 3;
+  const CLIENT_VERSION = 4;
   const TYPES = { 1: 'Opening', 2: 'Ending', 3: 'Insert Song' };
   const DECADES = ['1980s & Earlier', '1990s', '2000s', '2010s', '2020s'];
   const DECADE_YEARS = { '1980s & Earlier': [null, 1989], '1990s': [1990, 1999], '2000s': [2000, 2009], '2010s': [2010, 2019], '2020s': [2020, null] };
@@ -29,6 +29,7 @@
   const DEFAULT_FREE_TIERS = 2;
   const tierFloor = t => ((S.data && S.data.difficulty_floors) || DEFAULT_FLOORS)[t];
   const freeTiers = () => (S.data && S.data.free_difficulty_tiers) || DEFAULT_FREE_TIERS;
+  const GUESS_TIME_MAX = 60; // AMQ's longest guess time
   const TIMED_TRAPS = { 'Mute Trap': 'mute', 'Reverse Typing Trap': 'reverse', 'Tiny Text Trap': 'tiny' };
 
   // ---------- storage (never throws) ----------
@@ -56,7 +57,7 @@
     ws: null, connected: false, ready: false, manualClose: false, retries: 0, retryTimer: null,
     conn: load('conn', { url: 'archipelago.gg:38281', slot: '' }), password: '',
     seed: '', team: 0, slot: 0, slotName: '', data: null, players: {}, slotInfo: {}, games: {},
-    checked: new Set(), received: [], queued: [],
+    checked: new Set(), received: [], queued: [], scouts: {}, scoutMode: load('scout', 'items'), guessTimeWarned: false,
     unlocks: null, fragments: 0, prog: freshProgress(), game: freshGame(),
     goalSent: false, lastPayload: null, lastSong: '', log: [], chatMode: load('chat', 'mine'),
   };
@@ -136,6 +137,13 @@
     if (typeof volumeController.adjustVolume === 'function') volumeController.adjustVolume();
     return true;
   }
+  /** The room's guess time in seconds (the top of the range when it is random), or null if unreadable. */
+  function roomGuessTime() {
+    const g = typeof lobby !== 'undefined' && lobby && lobby.settings && lobby.settings.guessTime;
+    if (!g) return null;
+    const t = g.randomOn && Array.isArray(g.randomValue) ? g.randomValue[1] : g.standardValue;
+    return typeof t === 'number' && isFinite(t) ? t : null;
+  }
   const ANSWER_INPUT = '#qpAnswerInput';
   const CHAT_INPUT_ID = 'gcInput';
   function amqChat(text) { // returns false if AMQ's chat is unavailable
@@ -212,6 +220,14 @@
         if (ids.length < want.genres.length) manual.push('some genres AMQ does not list');
       } else manual.push('genres');
     }
+    if (want.guessTime) {
+      const g = s.guessTime;
+      if (g && typeof g.standardValue === 'number') {
+        const top = g.randomOn && Array.isArray(g.randomValue) ? g.randomValue[1] : g.standardValue;
+        if (top > want.guessTime) { g.randomOn = false; g.standardValue = want.guessTime; } // shorter is fine as it is
+        done.push('guess time');
+      } else manual.push('guess time');
+    }
     if (want.watchedOnly) {
       const sel = s.songSelection;
       if (sel && sel.advancedValue) {
@@ -243,7 +259,7 @@
   // ---------- unlocks / eligibility ----------
   const gated = c => !!(S.data && S.data.gated.includes(c));
   function rebuildUnlocks() {
-    const u = { types: new Set(), decades: new Set(), genres: new Set(), formats: new Set(), lens: 0 };
+    const u = { types: new Set(), decades: new Set(), genres: new Set(), formats: new Set(), lens: 0, clocks: 0 };
     let fragments = 0, r;
     for (const name of S.received) {
       if ((r = /^(Opening|Ending|Insert Song) Pass$/.exec(name))) u.types.add(r[1]);
@@ -251,16 +267,25 @@
       else if ((r = /^Genre Key: (.+)$/.exec(name))) u.genres.add(r[1]);
       else if ((r = /^Format Pass: (.+)$/.exec(name))) u.formats.add(r[1]);
       else if (name === 'Progressive Rarity Lens') u.lens++;
+      else if (name === 'Progressive Guess Time') u.clocks++;
       else if (name === 'Mixtape Fragment') fragments++;
     }
     S.unlocks = u; S.fragments = fragments;
   }
   const maxTier = () => (gated('Rarity') ? Math.min(TIERS.length - 1, freeTiers() - 1 + S.unlocks.lens) : TIERS.length - 1);
   const genreCounts = g => !gated('Genres') || S.unlocks.genres.has(g);
+  /** Longest room guess time that counts, in seconds. */
+  function allowedGuessTime() {
+    const gt = (S.data && S.data.guess_time) || { start: 10, step: 5 };
+    return Math.min(GUESS_TIME_MAX, gt.start + gt.step * S.unlocks.clocks);
+  }
   /** Returns null when the song counts, otherwise a short reason. */
   const songSource = () => (S.data && S.data.song_source) || 'any';
-  function ineligibleReason(song, own) {
+  function ineligibleReason(song, own, room = {}) {
     const U = S.unlocks;
+    if (gated('Guess Time') && room.guessTime !== null && room.guessTime !== undefined && room.guessTime > allowedGuessTime()) {
+      return `guess time ${room.guessTime}s, ${allowedGuessTime()}s allowed`;
+    }
     if (songSource() === 'own_list' && !own.onList) return 'not on your list';
     if (gated('Song Types') && !U.types.has(song.type)) return song.type ? `${song.type} locked` : 'unknown song type';
     if (gated('Decades') && !U.decades.has(song.decade)) return song.decade ? `${song.decade} locked` : 'unknown year';
@@ -350,12 +375,16 @@
         (m.players || []).forEach(p => { if (p.team === m.team) S.players[p.slot] = p.alias || p.name; });
         S.slotInfo = m.slot_info || {};
         S.checked = new Set(m.checked_locations || []);
-        S.received = []; S.queued = [];
+        S.received = []; S.queued = []; S.scouts = {};
         rebuildUnlocks();
         S.game = freshGame();
         if ((S.data.client_version || 0) > CLIENT_VERSION) say('This seed expects a newer userscript. Please update.');
         if (S.data.death_link) send([{ cmd: 'ConnectUpdate', tags: ['DeathLink'] }]);
         send([{ cmd: 'Get', keys: [dsKey()] }]);
+        { // what each open check holds; create_as_hint 0 so nothing is announced or spent
+          const open = S.data.checks.map(c => c.id).filter(id => !S.checked.has(id));
+          if (open.length) send([{ cmd: 'LocationScouts', locations: open, create_as_hint: 0 }]);
+        }
         say(`Logged in as ${S.slotName}.`);
         break;
       case 'Retrieved': {
@@ -372,6 +401,9 @@
       }
       case 'ReceivedItems':
         if (S.ready) onItems(m); else S.queued.push(m);
+        break;
+      case 'LocationInfo':
+        (m.locations || []).forEach(it => { S.scouts[it.location] = it; });
         break;
       case 'RoomUpdate':
         (m.checked_locations || []).forEach(l => S.checked.add(l));
@@ -510,7 +542,12 @@
     const g = S.game;
     g.songs++;
     g.standing = { rank: own.rank, count: own.count };
-    const reason = ineligibleReason(song, own);
+    const room = { guessTime: roomGuessTime() };
+    if (gated('Guess Time') && room.guessTime === null && !S.guessTimeWarned) {
+      S.guessTimeWarned = true;
+      say("Can't read the room's guess time, so songs count regardless. Keep it within your allowed time.");
+    }
+    const reason = ineligibleReason(song, own, room);
     let status;
     if (reason) {
       status = `ignored (${reason})`;
@@ -627,6 +664,7 @@
     if (gated('Formats')) want.formats = FORMATS.filter(f => U.formats.has(f));
     if (gated('Rarity')) want.difficulty = [tierFloor(TIERS[maxTier()]), 100];
     if (gated('Genres')) want.genres = GENRES.filter(g => U.genres.has(g));
+    if (gated('Guess Time')) want.guessTime = allowedGuessTime();
     if (songSource() === 'own_list') want.watchedOnly = true;
     return want;
   }
@@ -647,8 +685,22 @@
       ['Anime type', list('Formats', U.formats, FORMATS)],
       ['Difficulty', `${tierFloor(TIERS[maxTier()])}–100%`],
       ['Genres (optional)', list('Genres', U.genres, GENRES)],
+      ['Guess time', gated('Guess Time') ? `${allowedGuessTime()}s or less` : 'any'],
       ['Song selection', { any: 'any', own_list: 'watched only (your list)', mixed: 'mix of watched and random' }[songSource()] || 'any'],
     ];
+  }
+
+  // ---------- scouting ----------
+  const IMPORTANCE = it => (it.flags & 1 ? 'progression' : it.flags & 2 ? 'useful' : it.flags & 4 ? 'trap' : 'filler');
+  /** What a check holds, per the panel's scouting setting, or '' when unknown or hidden. */
+  function scoutLabel(id) {
+    const it = S.scouts[id];
+    if (!it || S.scoutMode === 'off') return '';
+    const kind = IMPORTANCE(it);
+    if (S.scoutMode === 'importance') return kind;
+    const name = ((S.games[gameOf(it.player)] || {}).items || {})[it.item] || `#${it.item}`;
+    const owner = it.player === S.slot ? 'your' : `${playerName(it.player)}'s`;
+    return `${owner} ${name} (${kind})`;
   }
 
   // ---------- UI ----------
@@ -663,7 +715,7 @@
       #amq-ap-panel table{width:100%;border-collapse:collapse}#amq-ap-panel td{padding:1px 4px;vertical-align:top}
       #amq-ap-panel summary{cursor:pointer;font-weight:700;margin-top:6px}
       #amq-ap-panel .bar{background:#333;border-radius:3px;height:6px}#amq-ap-panel .bar>i{display:block;height:6px;border-radius:3px;background:#6d4aff}
-      #amq-ap-panel .dim{color:#999}`;
+      #amq-ap-panel .dim{color:#999}#amq-ap-panel .prog{color:#ffd76a}`;
     document.head.appendChild(css);
     const btn = document.createElement('button');
     btn.id = 'amq-ap-btn'; btn.textContent = 'AP';
@@ -705,9 +757,13 @@
         return { c, a: Math.min(a, b), b };
       }).sort((x, y) => (stageLock(x.c) > 0) - (stageLock(y.c) > 0) || y.a / y.b - x.a / x.b);
       const stageName = c => ((D.stages || [])[c.stage || 0]) || 'next stage';
-      h += section('checks', `Open checks (${open.length})`, '<table>' + open.slice(0, 40).map(({ c, a, b }) => {
+      const scoutOpt = (v, label) => `<option value="${v}"${S.scoutMode === v ? ' selected' : ''}>${label}</option>`;
+      h += section('checks', `Open checks (${open.length})`, `<span class="dim">Show contents</span> <select id="ap-scout">` +
+        `${scoutOpt('items', 'items')}${scoutOpt('importance', 'importance only')}${scoutOpt('off', 'nothing')}</select>` + '<table>' + open.slice(0, 40).map(({ c, a, b }) => {
         const lock = stageLock(c);
-        const note = lock ? `<br><span class="dim">${esc(stageName(c))}: ${lock} more fragment${lock > 1 ? 's' : ''}</span>` : '';
+        const scout = scoutLabel(c.id), star = S.scouts[c.id] && S.scouts[c.id].flags & 1 && S.scoutMode !== 'off';
+        const note = (scout ? `<br><span class="${star ? 'prog' : 'dim'}">→ ${esc(scout)}</span>` : '') +
+          (lock ? `<br><span class="dim">${esc(stageName(c))}: ${lock} more fragment${lock > 1 ? 's' : ''}</span>` : '');
         return `<tr><td>${esc(c.name)}${note}</td><td style="width:70px"><div class="bar"><i style="width:${Math.round(100 * a / b)}%"></i></div><span class="dim">${a}/${b}</span></td></tr>`;
       }).join('') + '</table>');
     }
@@ -717,16 +773,17 @@
       '<br><span class="dim">Type /ap help in AMQ chat for commands.</span>');
     body.innerHTML = h;
     const $ = sel => body.querySelector(sel);
-    const go = $('#ap-go'), dc = $('#ap-dc'), lob = $('#ap-lobby'), chat = $('#ap-chat');
+    const go = $('#ap-go'), dc = $('#ap-dc'), lob = $('#ap-lobby'), chat = $('#ap-chat'), scout = $('#ap-scout');
     if (go) go.onclick = () => connect($('#ap-url').value, $('#ap-slot').value, $('#ap-pw').value);
     if (dc) dc.onclick = () => { disconnect(); say('Disconnected.'); };
     if (lob) lob.onclick = () => applyLobby();
     if (chat) chat.onchange = () => { S.chatMode = chat.value; save('chat', chat.value); };
+    if (scout) scout.onchange = () => { S.scoutMode = scout.value; save('scout', scout.value); render(); };
   }
 
   // ---------- boot ----------
   window.AMQAP = { state: S, connect, disconnect, handle, onAnswerResults, onQuizOver, onQuizReady, extractSong, extractOwn,
-    lobbyGuide, lobbyWish, lobbySettingsFor, applyLobby, apCommand, stageLock,
+    lobbyGuide, lobbyWish, lobbySettingsFor, applyLobby, apCommand, stageLock, scoutLabel,
     open: () => { panel.style.display = 'block'; render(); } };
   const wait = setInterval(() => {
     if (typeof Listener === 'undefined' || !document.body) return;

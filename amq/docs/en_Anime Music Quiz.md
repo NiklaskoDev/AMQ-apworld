@@ -22,6 +22,7 @@ Items are unlocks that live in the multiworld:
   By default Easy (60–100%) and Medium (25–60%) are free and two lenses add Hard (10–25%), then Brutal (0–10%).
   Both the boundaries and the number of free tiers are options (see below).
 * **Mixtape Fragments**: open the later stages and, once you have enough, the Grand Finale
+* **Progressive Guess Time** (only with `Guess Time` in `unlock_categories`, see below)
 
 You start with one song type (Opening by default), two neighbouring decades, four genres (at least one of them broad)
 and TV. Categories you leave out of `unlock_categories` are simply always open.
@@ -48,6 +49,15 @@ and TV. Categories you leave out of `unlock_categories` are simply always open.
 Each tier stays at least 5 points wide: if the floors are out of order or too close, the lower ones are pushed down
 (and a warning is logged), so no tier's checks become impossible. The client's lobby guide shows the difficulty
 range to set for your current unlocks.
+
+## Guess time
+
+Add `Guess Time` to `unlock_categories` (it is not in the default) to start with a short timer. Songs only count
+when the room's guess time is at most your allowed time: `guess_time_start` seconds (default 10), plus
+`guess_time_step` (default 5) for each Progressive Guess Time; `guess_time_items` (default 4) of them are in the
+pool. A random guess time is judged by the top of its range; extra guess time is not counted. Nothing in logic needs a
+longer timer, since a shorter one always works, so these items are useful rather than progression. If the client
+cannot read the room's timer it counts songs anyway and says so once.
 
 ## Stages
 
@@ -94,6 +104,12 @@ Traps are cosmetic. They never touch your answers or the game itself.
 * **Tiny Text Trap**: the answer box text shrinks to near-unreadable size
 * **Streak Wipe Trap**: your current streak resets
 * **Tax Collector Trap**: you lose 5 points of cumulative milestone progress
+
+## Scouting
+
+The client asks the server what each open check holds (without creating hints) and shows it under the check in the
+panel, for example `→ Friend's Hookshot (progression)`. Choose "importance only" or "nothing" in the Open checks
+section if you'd rather not know.
 
 ## AMQ chat
 

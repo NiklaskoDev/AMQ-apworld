@@ -8,6 +8,7 @@ from Options import (
 from .items import TRAPS
 
 GATING_CATEGORIES = ["Song Types", "Decades", "Genres", "Formats", "Rarity"]
+OPTIONAL_CATEGORIES = ["Guess Time"]  # valid, but not locked unless asked for
 
 
 class Goal(Choice):
@@ -56,9 +57,11 @@ class UnlockCategories(OptionSet):
     """
     Which parts of the quiz are locked behind items. Songs outside your unlocks do not count toward checks.
     These mirror the filters in the lobby settings: song types, vintage, genres, anime type and song difficulty.
-    Rarity uses the difficulty tiers below: the free tiers are open, Progressive Rarity Lenses unlock the rest."""
+    Rarity uses the difficulty tiers below: the free tiers are open, Progressive Rarity Lenses unlock the rest.
+    Guess Time (not in the default) caps the room's guess time: songs only count when the room's timer is at most
+    the allowed time, and each Progressive Guess Time raises it (see guess_time_start / guess_time_step)."""
     display_name = "Unlock Categories"
-    valid_keys = frozenset(GATING_CATEGORIES)
+    valid_keys = frozenset(GATING_CATEGORIES + OPTIONAL_CATEGORIES)
     default = frozenset(GATING_CATEGORIES)
 
 
@@ -109,6 +112,30 @@ class FreeDifficultyTiers(Range):
     range_start = 1
     range_end = 4
     default = 2
+
+
+class GuessTimeStart(Range):
+    """With Guess Time locked, the longest room guess time (seconds) that counts at the start."""
+    display_name = "Starting Guess Time"
+    range_start = 5
+    range_end = 30
+    default = 10
+
+
+class GuessTimeStep(Range):
+    """Seconds each Progressive Guess Time adds to the allowed guess time."""
+    display_name = "Guess Time Step"
+    range_start = 1
+    range_end = 20
+    default = 5
+
+
+class GuessTimeItems(Range):
+    """How many Progressive Guess Time items are in the pool when Guess Time is locked."""
+    display_name = "Guess Time Items"
+    range_start = 1
+    range_end = 10
+    default = 4
 
 
 class StartingSongType(Choice):
@@ -217,6 +244,9 @@ class AMQOptions(PerGameCommonOptions):
     medium_floor: MediumFloor
     hard_floor: HardFloor
     free_difficulty_tiers: FreeDifficultyTiers
+    guess_time_start: GuessTimeStart
+    guess_time_step: GuessTimeStep
+    guess_time_items: GuessTimeItems
     milestone_count: MilestoneCount
     milestone_step: MilestoneStep
     challenge_checks: ChallengeChecks
@@ -233,7 +263,8 @@ class AMQOptions(PerGameCommonOptions):
 OPTION_GROUPS = [
     OptionGroup("Goal", [Goal, FragmentsRequired, FragmentExtraPercent, FinaleSongs, FinaleAccuracy]),
     OptionGroup("Unlocks", [UnlockCategories, SongSource, StartingSongType, StartingDecades, StartingGenres]),
-    OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers]),
+    OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers, GuessTimeStart, GuessTimeStep,
+                               GuessTimeItems]),
     OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, SeasonChecks, MultiplayerChecks]),
     OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration]),
     OptionGroup("Death Link", [DeathLink, DeathLinkMisses]),

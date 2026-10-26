@@ -5,7 +5,7 @@ import { answer, FakeSocket, loadClient } from './harness.mjs';
 
 const ITEMS = {
   'Opening Pass': 1, 'Ending Pass': 2, 'Decade Pass: 1980s & Earlier': 10, 'Decade Pass: 2000s': 12, 'Genre Key: Action': 20, 'Format Pass: TV': 60,
-  'Progressive Rarity Lens': 70, 'Mixtape Fragment': 71, 'Encore Ticket': 80, 'Streak Shield': 81, 'Hype Cheer': 82,
+  'Progressive Rarity Lens': 70, 'Mixtape Fragment': 71, 'Progressive Guess Time': 72, 'Encore Ticket': 80, 'Streak Shield': 81, 'Hype Cheer': 82,
   'Mute Trap': 90, 'Reverse Typing Trap': 91, 'Streak Wipe Trap': 93, 'Tax Collector Trap': 94,
 };
 const CHECKS = [
@@ -18,7 +18,7 @@ const CHECKS = [
   { id: 2701, name: 'Win a Multiplayer Game', kind: 'mp_win', n: 2, stage: 0 },
 ];
 const slotData = extra => ({
-  client_version: 3, goal: 'fragments', fragments_required: 4, finale_songs: 20, finale_accuracy: 70,
+  client_version: 4, goal: 'fragments', fragments_required: 4, finale_songs: 20, finale_accuracy: 70,
   stages: ['A', 'B', 'C', 'D'], stage_fragments: [0, 1, 2, 3],
   gated: ['Song Types', 'Decades', 'Genres', 'Formats', 'Rarity'], trap_duration: 2,
   death_link: true, death_link_misses: 3, checks: CHECKS, ...extra,
@@ -454,4 +454,84 @@ test('ungated categories are left alone when applying', async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(r)), { done: ['song types'], manual: [] });
   assert.deepEqual(s.vintage, roomSettings().vintage);
   assert.deepEqual(s.genre, []);
+});
+
+test('open checks are scouted on connect without creating hints', async () => {
+  const { ws, S, api } = await connected();
+  const [scout] = ws.take('LocationScouts');
+  assert.deepEqual(JSON.parse(JSON.stringify(scout.locations)).sort(), CHECKS.map(c => c.id).sort());
+  assert.equal(scout.create_as_hint, 0);
+  ws.server([{ cmd: 'LocationInfo', locations: [
+    { item: 5, location: 2000, player: 2, flags: 1 },
+    { item: 80, location: 2500, player: 1, flags: 2 },
+    { item: 90, location: 2601, player: 1, flags: 4 },
+  ] }]);
+  assert.equal(api.scoutLabel(2000), "Friend's Big Sword (progression)");
+  assert.equal(api.scoutLabel(2500), 'your Encore Ticket (useful)');
+  assert.equal(api.scoutLabel(2601), 'your Mute Trap (trap)');
+  assert.equal(api.scoutLabel(1010), '', 'not scouted yet');
+  S.scoutMode = 'importance';
+  assert.equal(api.scoutLabel(2000), 'progression');
+  S.scoutMode = 'off';
+  assert.equal(api.scoutLabel(2000), '');
+});
+
+test('already checked locations are not scouted', async () => {
+  const c = await loadClient({ WebSocket: FakeSocket });
+  c.api.connect('ws://test:1', 'Me', '');
+  await tick();
+  const ws = FakeSocket.instances.at(-1);
+  ws.server([{ cmd: 'RoomInfo', seed_name: 'S1', games: ['Anime Music Quiz'] }]);
+  ws.server([{ cmd: 'DataPackage', data: { games: { 'Anime Music Quiz': { item_name_to_id: ITEMS, location_name_to_id: {} } } } }]);
+  ws.server([{ cmd: 'Connected', team: 0, slot: 1, slot_data: slotData(), checked_locations: CHECKS.map(x => x.id).filter(id => id !== 2000),
+    players: [], slot_info: {} }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.take('LocationScouts')[0].locations)), [2000]);
+});
+
+const GT = { gated: ['Song Types', 'Decades', 'Genres', 'Formats', 'Rarity', 'Guess Time'], guess_time: { start: 10, step: 5 } };
+const room = (sandbox, guessTime) => { sandbox.lobby = { inLobby: true, isHost: true, settings: { guessTime } }; };
+
+test('guess time: songs only count when the room timer is within the allowed time', async () => {
+  const { ws, fire, S, api, sandbox } = await connected({ slot: GT });
+  room(sandbox, { randomOn: false, standardValue: 20 });
+  fire('answer results', answer());
+  assert.match(S.lastSong, /ignored \(guess time 20s, 10s allowed\)/);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Progressive Guess Time']) }]);
+  fire('answer results', answer());
+  assert.match(S.lastSong, /ignored \(guess time 20s, 15s allowed\)/);
+  ws.server([{ cmd: 'ReceivedItems', index: 5, items: items(['Progressive Guess Time']) }]);
+  fire('answer results', answer());
+  assert.match(S.lastSong, /→ counted/);
+  room(sandbox, { randomOn: true, standardValue: 5, randomValue: [5, 25] });
+  fire('answer results', answer());
+  assert.match(S.lastSong, /guess time 25s/, 'a random timer is judged by its longest value');
+  assert.equal(S.prog.total, 1);
+  const guide = Object.fromEntries(JSON.parse(JSON.stringify(api.lobbyGuide())));
+  assert.equal(guide['Guess time'], '20s or less');
+});
+
+test('guess time: an unreadable room timer counts and warns once', async () => {
+  const { fire, S } = await connected({ slot: GT });
+  fire('answer results', answer());
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 2);
+  assert.equal(S.log.filter(l => /guess time/.test(l)).length, 1);
+});
+
+test('guess time is ignored unless gated', async () => {
+  const { fire, S, api, sandbox } = await connected();
+  room(sandbox, { randomOn: false, standardValue: 60 });
+  fire('answer results', answer());
+  assert.match(S.lastSong, /→ counted/);
+  assert.equal(api.lobbyWish().guessTime, undefined);
+});
+
+test('apply to room shortens a too-long guess time and leaves a shorter one', async () => {
+  const { api } = await connected({ slot: GT });
+  const long = { guessTime: { randomOn: true, standardValue: 20, randomValue: [5, 30] } };
+  assert.deepEqual(JSON.parse(JSON.stringify(api.lobbySettingsFor(long, api.lobbyWish()))).done.includes('guess time'), true);
+  assert.deepEqual(long.guessTime, { randomOn: false, standardValue: 10, randomValue: [5, 30] });
+  const short = { guessTime: { randomOn: false, standardValue: 7 } };
+  api.lobbySettingsFor(short, { guessTime: 10 });
+  assert.equal(short.guessTime.standardValue, 7);
 });

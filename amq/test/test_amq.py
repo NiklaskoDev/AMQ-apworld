@@ -3,7 +3,7 @@ import json
 from test.bases import WorldTestBase
 
 from ..items import (
-    BASE_ID, BROAD_GENRES, DECADES, DECADE_ITEMS, FRAGMENT, GAME_NAME, GENRE_ITEMS, ITEM_NAME_TO_ID, LENS,
+    BASE_ID, BROAD_GENRES, CLOCK, DECADES, DECADE_ITEMS, FRAGMENT, GAME_NAME, GENRE_ITEMS, ITEM_NAME_TO_ID, LENS,
 )
 from ..locations import LOCATION_GROUPS, LOCATION_NAME_TO_ID
 
@@ -86,6 +86,7 @@ class TestStableIds(AMQTestBase):
         self.assertEqual(ITEM_NAME_TO_ID["Opening Pass"], BASE_ID)
         self.assertEqual(ITEM_NAME_TO_ID["Genre Key: Action"], BASE_ID + 20)
         self.assertEqual(ITEM_NAME_TO_ID[FRAGMENT], BASE_ID + 71)
+        self.assertEqual(ITEM_NAME_TO_ID[CLOCK], BASE_ID + 72)
         self.assertEqual(LOCATION_NAME_TO_ID["Correct Answers: 120"], BASE_ID + 120)
         self.assertEqual(LOCATION_NAME_TO_ID["First Correct Opening"], BASE_ID + 2000)
         self.assertEqual(LOCATION_NAME_TO_ID["Genre Scholar: Action"], BASE_ID + 2200)
@@ -176,6 +177,25 @@ class TestAllTiersFree(AMQTestBase):
         self.assertEqual(self.get_items_by_name(LENS), [])
         self.collect_by_name(FRAGMENT)
         self.assertTrue(self.can_reach_location("Brutal Guess-Rate Songs x3"))
+
+
+class TestGuessTimeOffByDefault(AMQTestBase):
+    def test_no_clocks(self) -> None:
+        self.assertEqual(self.get_items_by_name(CLOCK), [])
+        self.assertNotIn("Guess Time", self.amq().fill_slot_data()["gated"])
+
+
+class TestGuessTime(AMQTestBase):
+    options = {
+        "unlock_categories": ["Song Types", "Decades", "Genres", "Formats", "Rarity", "Guess Time"],
+        "guess_time_start": 8, "guess_time_step": 4, "guess_time_items": 3,
+    }
+
+    def test_clocks_in_pool(self) -> None:
+        self.assertEqual(len(self.get_items_by_name(CLOCK)), 3)
+        data = self.amq().fill_slot_data()
+        self.assertIn("Guess Time", data["gated"])
+        self.assertEqual(data["guess_time"], {"start": 8, "step": 4})
 
 
 class TestFloorsCorrected(AMQTestBase):

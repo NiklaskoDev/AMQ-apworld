@@ -27,6 +27,7 @@ DEFAULT_FREE_RARITY_TIERS = 2
 
 FRAGMENT = "Mixtape Fragment"
 LENS = "Progressive Rarity Lens"
+CLOCK = "Progressive Guess Time"
 
 SONG_TYPE_ITEMS = {t: f"{t} Pass" for t in SONG_TYPES}
 DECADE_ITEMS = {d: f"Decade Pass: {d}" for d in DECADES}
@@ -63,6 +64,8 @@ def _build() -> dict[str, ItemData]:
     block(60, FORMAT_ITEMS.values(), prog, "Formats")
     block(70, [LENS], prog, "Rarity")
     block(71, [FRAGMENT], prog, "Fragments")
+    # nothing needs a longer timer (a short one always works), so it only makes play easier
+    block(72, [CLOCK], ItemClassification.useful, "Guess Time")
     block(80, [ENCORE, SHIELD], ItemClassification.useful, "Boosts")
     block(82, [CHEER], ItemClassification.filler, "Boosts")
     block(90, TRAPS, ItemClassification.trap, "Traps")

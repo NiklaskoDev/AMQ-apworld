@@ -20,14 +20,14 @@ Archipelago server, so you can switch browsers without losing anything or gettin
 ## Playing
 
 * Open the **Lobby settings** section of the panel. As the room host, press **Apply to room** (or type `/ap lobby` in
-  chat) to set song types, vintage range, anime type, song difficulty, genres (as "optional") and, for `own_list`,
-  song selection to match your unlocks. Only locked categories are changed. Anything it cannot set (for example two
+  chat) to set song types, vintage range, anime type, song difficulty, genres (as "optional"), guess time (if it is
+  locked and the room's is too long) and, for `own_list`, song selection to match your unlocks. Only locked categories are changed. Anything it cannot set (for example two
   separate vintage ranges) is listed so you can set it by hand. Songs outside your unlocks still play but are ignored.
 * Type `/ap help` in AMQ's chat for the chat commands. `/ap !hint <item>` and other server commands work there.
 * With `song_source: own_list` or `mixed`, link your anime list in AMQ and set the lobby's song selection to
   "watched" or a mix. The panel marks each song as "on list" or "off list".
 * Play solo or with friends. Spectating does nothing.
-* **Open checks** lists what is left, your progress and which stage still needs fragments.
+* **Open checks** lists what is left, your progress, which stage still needs fragments and what each check holds.
 * The panel shows each song's result, for example `Opening · 2010s · TV · Medium → counted` or
   `→ ignored (Ending locked)`.
 

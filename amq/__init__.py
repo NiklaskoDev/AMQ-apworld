@@ -8,7 +8,7 @@ from BaseClasses import CollectionState, Item, ItemClassification, Region, Tutor
 from worlds.AutoWorld import WebWorld, World
 
 from .items import (
-    AMQItem, BROAD_GENRES, DECADES, DECADE_ITEMS, FILLER_WEIGHTS, FORMAT_ITEMS, FRAGMENT, GAME_NAME, GENRES,
+    AMQItem, BROAD_GENRES, CLOCK, DECADES, DECADE_ITEMS, FILLER_WEIGHTS, FORMAT_ITEMS, FRAGMENT, GAME_NAME, GENRES,
     GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, RARITY_TIERS, SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
 )
 from .locations import (
@@ -17,7 +17,7 @@ from .locations import (
 )
 from .options import AMQOptions, OPTION_GROUPS, SongSource
 
-CLIENT_VERSION = 3
+CLIENT_VERSION = 4
 
 logger = logging.getLogger("Anime Music Quiz")
 
@@ -131,6 +131,8 @@ class AMQWorld(World):
         names = [n for n in names if n not in self.starting]
         if "Rarity" in self.gated:
             names += [LENS] * (len(RARITY_TIERS) - self.options.free_difficulty_tiers.value)
+        if "Guess Time" in self.gated:
+            names += [CLOCK] * self.options.guess_time_items.value
         return names
 
     def create_item(self, name: str) -> Item:
@@ -211,6 +213,7 @@ class AMQWorld(World):
             "difficulty_floors": {"Easy": o.easy_floor.value, "Medium": o.medium_floor.value,
                                   "Hard": o.hard_floor.value, "Brutal": 0},
             "free_difficulty_tiers": o.free_difficulty_tiers.value,
+            "guess_time": {"start": o.guess_time_start.value, "step": o.guess_time_step.value},
             "trap_duration": o.trap_duration.value,
             "death_link": bool(o.death_link),
             "death_link_misses": o.death_link_misses.value,
