@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.4.0
+// @version      0.5.0
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
@@ -15,7 +15,7 @@
   'use strict';
 
   const GAME = 'Anime Music Quiz';
-  const CLIENT_VERSION = 2;
+  const CLIENT_VERSION = 3;
   const TYPES = { 1: 'Opening', 2: 'Ending', 3: 'Insert Song' };
   const DECADES = ['1980s & Earlier', '1990s', '2000s', '2010s', '2020s'];
   const DECADE_YEARS = { '1980s & Earlier': [null, 1989], '1990s': [1990, 1999], '2000s': [2000, 2009], '2010s': [2010, 2019], '2020s': [2020, null] };
@@ -23,6 +23,7 @@
     'Sci-Fi', 'Slice of Life', 'Sports', 'Supernatural', 'Mahou Shoujo', 'Psychological', 'Thriller'];
   const FORMATS = ['TV', 'Movie', 'OVA', 'ONA', 'Special'];
   const TIERS = ['Easy', 'Medium', 'Hard', 'Brutal'];
+  const SEASONS = ['Winter', 'Spring', 'Summer', 'Fall'];
   // guess-rate floors (%) matching the lobby slider; seeds set their own via slot data, these are the defaults
   const DEFAULT_FLOORS = { Easy: 60, Medium: 25, Hard: 10, Brutal: 0 };
   const DEFAULT_FREE_TIERS = 2;
@@ -42,13 +43,14 @@
 
   // ---------- state ----------
   const freshProgress = () => ({
-    v: 1, total: 0, type: {}, decade: {}, genre: {}, format: {}, rarity: {},
+    v: 1, total: 0, type: {}, decade: {}, genre: {}, format: {}, rarity: {}, season: {},
     listOn: 0, listOff: 0,
     processed: 0, encore: 0, shield: 0, traps: { mute: 0, reverse: 0, tiny: 0 }, finaleDone: false,
   });
   const freshGame = () => ({
     songs: 0, eligible: 0, eligibleCorrect: 0, streak: 0, best: 0, missRun: 0,
-    types: new Set(), decades: new Set(), genres: new Set(), listOn: 0, listOff: 0, standing: null, finalized: false,
+    types: new Set(), decades: new Set(), genres: new Set(), seasons: new Set(), listOn: 0, listOff: 0, standing: null,
+    finalized: false,
   });
   const S = {
     ws: null, connected: false, ready: false, manualClose: false, retries: 0, retryTimer: null,
@@ -56,7 +58,7 @@
     seed: '', team: 0, slot: 0, slotName: '', data: null, players: {}, slotInfo: {}, games: {},
     checked: new Set(), received: [], queued: [],
     unlocks: null, fragments: 0, prog: freshProgress(), game: freshGame(),
-    goalSent: false, lastPayload: null, lastSong: '', log: [],
+    goalSent: false, lastPayload: null, lastSong: '', log: [], chatMode: load('chat', 'mine'),
   };
 
   // ---------- AMQ adapters ----------
@@ -70,6 +72,11 @@
     if (!m) return null;
     const y = +m[1];
     return y < 1990 ? DECADES[0] : y < 2000 ? DECADES[1] : y < 2010 ? DECADES[2] : y < 2020 ? DECADES[3] : DECADES[4];
+  }
+  function seasonOf(vintage) {
+    const m = /^\s*([a-z]+)/i.exec(String(vintage || ''));
+    if (!m) return null;
+    return /^autumn$/i.test(m[1]) ? 'Fall' : canon(SEASONS, m[1]);
   }
   function tierOf(rate) { // animeDifficulty is a number, or the string "Unrated"
     if (typeof rate !== 'number' || !isFinite(rate)) return null;
@@ -92,6 +99,7 @@
     return {
       type: TYPES[s.type] || canon(Object.values(TYPES), s.type),
       decade: decadeOf(s.vintage),
+      season: seasonOf(s.vintage),
       genres: genresOf(s.animeGenre),
       format: formatOf(s.animeType),
       tier: tierOf(s.animeDifficulty),
@@ -129,6 +137,108 @@
     return true;
   }
   const ANSWER_INPUT = '#qpAnswerInput';
+  const CHAT_INPUT_ID = 'gcInput';
+  function amqChat(text) { // returns false if AMQ's chat is unavailable
+    if (typeof gameChat === 'undefined' || !gameChat || typeof gameChat.systemMessage !== 'function') return false;
+    try { gameChat.systemMessage(esc(text)); return true; } catch (e) { return false; }
+  }
+  /** Intercepts "/ap ..." typed into AMQ's chat before AMQ sends it to the room. */
+  function hookChatInput(onCommand) {
+    if (!document.addEventListener) return;
+    let swallow = false;
+    document.addEventListener('keydown', ev => {
+      if (ev.key !== 'Enter' || !ev.target || ev.target.id !== CHAT_INPUT_ID) return;
+      const m = /^\/ap(?:\s+([\s\S]*))?$/i.exec(ev.target.value || '');
+      if (!m) return;
+      ev.preventDefault(); ev.stopImmediatePropagation();
+      ev.target.value = ''; swallow = true;
+      onCommand((m[1] || '').trim());
+    }, true);
+    document.addEventListener('keypress', ev => { if (swallow && ev.key === 'Enter') { ev.preventDefault(); ev.stopImmediatePropagation(); } }, true);
+    document.addEventListener('keyup', ev => { if (ev.key === 'Enter') swallow = false; }, true);
+  }
+  /** Own chat messages that reached the room anyway (the interception above missed), from either chat event. */
+  function ownChatCommands(p) {
+    const msgs = p && Array.isArray(p.messages) ? p.messages : p ? [p] : [];
+    const me = typeof selfName !== 'undefined' ? selfName : null;
+    return msgs.filter(x => x && x.sender === me && typeof x.message === 'string')
+      .map(x => /^\/ap(?:\s+([\s\S]*))?$/i.exec(x.message)).filter(Boolean).map(m => (m[1] || '').trim());
+  }
+
+  const FORMAT_KEYS = { TV: 'tv', Movie: 'movie', OVA: 'ova', ONA: 'ona', Special: 'special' };
+  /** Rewrites a copy of AMQ's room settings to match `want`. Categories left out of `want` are not touched. */
+  function lobbySettingsFor(s, want) {
+    const done = [], manual = [];
+    const songs = s.numberOfSongs || 20;
+    if (want.types) {
+      const st = s.songType;
+      if (st && st.standardValue && typeof st.standardValue.openings === 'boolean') {
+        Object.assign(st.standardValue, { openings: want.types.includes('Opening'), endings: want.types.includes('Ending'),
+          inserts: want.types.includes('Insert Song') });
+        if (st.advancedValue) Object.assign(st.advancedValue, { openings: 0, endings: 0, inserts: 0, random: songs });
+        done.push('song types');
+      } else manual.push('song types');
+    }
+    if (want.years) {
+      const v = s.vintage;
+      if (want.years.length !== 1) manual.push('vintage (your decades are not one range)');
+      else if (v && v.standardValue && Array.isArray(v.standardValue.years)) {
+        const dflt = typeof hostModal !== 'undefined' && hostModal && hostModal.DEFUALT_SETTINGS; // sic, AMQ's spelling
+        const bounds = (dflt && dflt.vintage && dflt.vintage.standardValue && dflt.vintage.standardValue.years) ||
+          [1944, new Date().getFullYear()];
+        const [from, to] = want.years[0];
+        v.standardValue = { years: [from === null ? bounds[0] : from, to === null ? bounds[1] : to], seasons: [0, 3] };
+        v.advancedValueList = [];
+        done.push('vintage');
+      } else manual.push('vintage');
+    }
+    if (want.formats) {
+      const key = Object.keys(s).find(k => s[k] && typeof s[k] === 'object' &&
+        Object.values(FORMAT_KEYS).every(f => typeof s[k][f] === 'boolean'));
+      if (key) { for (const f of FORMATS) s[key][FORMAT_KEYS[f]] = want.formats.includes(f); done.push('anime type'); }
+      else manual.push('anime type');
+    }
+    if (want.difficulty) {
+      const d = s.songDifficulity || s.songDifficulty; // sic, AMQ's spelling
+      if (d && Array.isArray(d.advancedValue)) { d.advancedOn = true; d.advancedValue = want.difficulty.slice(); done.push('difficulty'); }
+      else manual.push('difficulty');
+    }
+    if (want.genres) {
+      const names = typeof idTranslator !== 'undefined' && idTranslator && idTranslator.genreNames;
+      if (names && Array.isArray(s.genre)) {
+        const ids = Object.entries(names).map(([id, n]) => [String(id), canon(GENRES, n)]).filter(([, g]) => g && want.genres.includes(g));
+        s.genre = ids.map(([id]) => ({ id, state: 3 })); // 3 = optional: a song needs at least one of them
+        done.push('genres');
+        if (ids.length < want.genres.length) manual.push('some genres AMQ does not list');
+      } else manual.push('genres');
+    }
+    if (want.watchedOnly) {
+      const sel = s.songSelection;
+      if (sel && sel.advancedValue) {
+        sel.standardValue = 3; sel.advancedValue = { random: 0, unwatched: 0, watched: songs };
+        done.push('song selection');
+      } else manual.push('song selection');
+    }
+    return { done, manual };
+  }
+  /** Sends the changed room settings. Returns { error } or { done, manual, changed }. */
+  function amqApplyLobby(want) {
+    if (typeof lobby === 'undefined' || !lobby || !lobby.inLobby) return { error: 'Join a lobby first.' };
+    if (!lobby.isHost) return { error: 'Only the room host can change the settings.' };
+    if (typeof hostModal === 'undefined' || !hostModal || typeof hostModal.getSettings !== 'function' ||
+        typeof hostModal.changeSettings !== 'function' || typeof lobby.changeGameSettings !== 'function') {
+      return { error: "Can't reach AMQ's room settings. Set them by hand." };
+    }
+    const s = JSON.parse(JSON.stringify(hostModal.getSettings(true)));
+    const result = lobbySettingsFor(s, want);
+    const current = lobby.settings || {};
+    const diff = Object.fromEntries(Object.entries(s).filter(([k, v]) => JSON.stringify(current[k]) !== JSON.stringify(v)));
+    if (Object.keys(diff).length) {
+      hostModal.changeSettings(diff);
+      setTimeout(() => lobby.changeGameSettings(), 1);
+    }
+    return { ...result, changed: Object.keys(diff).length > 0 };
+  }
 
   // ---------- unlocks / eligibility ----------
   const gated = c => !!(S.data && S.data.gated.includes(c));
@@ -166,6 +276,11 @@
     S.log.push(text);
     if (S.log.length > 80) S.log.shift();
     render();
+  }
+  /** Logs and, unless the AMQ chat bridge is off, also posts to AMQ's chat. */
+  function notify(text) {
+    say(text);
+    if (S.chatMode !== 'off') amqChat('[AP] ' + text);
   }
   const storeKey = k => `${k}_${S.seed}_${S.team}_${S.slot}`;
   const dsKey = () => `AMQ_${S.team}_${S.slot}`;
@@ -261,9 +376,12 @@
       case 'RoomUpdate':
         (m.checked_locations || []).forEach(l => S.checked.add(l));
         break;
-      case 'PrintJSON':
-        say(printJson(m.data || []));
+      case 'PrintJSON': {
+        const text = printJson(m.data || []);
+        say(text);
+        if (chatWants(m)) amqChat('[AP] ' + text);
         break;
+      }
       case 'Bounced':
         if ((m.tags || []).includes('DeathLink')) onDeath(m.data || {});
         break;
@@ -285,6 +403,31 @@
     }).join('');
   }
 
+  // ---------- AMQ chat bridge ----------
+  const CHAT_ALWAYS = ['Chat', 'ServerChat', 'CommandResult', 'AdminCommandResult', 'Countdown'];
+  const CHAT_MINE = ['ItemSend', 'ItemCheat', 'Hint', 'Goal', 'Release', 'Collect'];
+  /** off: nothing; mine: chat, command replies and items or hints involving this slot; all: everything. */
+  function chatWants(m) {
+    if (S.chatMode === 'off') return false;
+    if (S.chatMode === 'all' || !m.type || CHAT_ALWAYS.includes(m.type)) return true;
+    const mine = m.receiving === S.slot || (m.item && m.item.player === S.slot) || m.slot === S.slot;
+    return mine && CHAT_MINE.includes(m.type);
+  }
+  function reply(text) { say(text); amqChat('[AP] ' + text); }
+  /** "/ap ..." from AMQ's chat: local commands, everything else goes to the Archipelago room (so !hint etc. work). */
+  function apCommand(text) {
+    if (!text || /^help$/i.test(text)) {
+      reply('/ap <message> talks to the multiworld. Server commands work too: /ap !hint <item>, /ap !remaining. ' +
+        '/ap lobby applies your unlocks to the room settings.');
+    } else if (/^lobby$/i.test(text)) {
+      applyLobby(reply);
+    } else if (!S.connected) {
+      reply('Not connected. Open the AP panel to connect.');
+    } else {
+      send([{ cmd: 'Say', text }]);
+    }
+  }
+
   function onItems(m) {
     if (m.index === 0) S.received = [];
     else if (m.index !== S.received.length) { send([{ cmd: 'Sync' }]); return; }
@@ -299,12 +442,16 @@
 
   function applyOneShot(name) {
     const d = (S.data && S.data.trap_duration) || 3;
-    if (name in TIMED_TRAPS) { S.prog.traps[TIMED_TRAPS[name]] += d; say(`${name}! Lasts ${d} songs.`); }
-    else if (name === 'Encore Ticket') { S.prog.encore++; say('Encore Ticket: your next counted answer is worth 2.'); }
-    else if (name === 'Streak Shield') { S.prog.shield++; say('Streak Shield ready.'); }
-    else if (name === 'Hype Cheer') say('Hype Cheer! The crowd goes wild.');
-    else if (name === 'Streak Wipe Trap') { S.game.streak = 0; say('Streak Wipe Trap! Your streak is gone.'); }
-    else if (name === 'Tax Collector Trap') { S.prog.total = Math.max(0, S.prog.total - 5); say('Tax Collector Trap! -5 milestone progress.'); }
+    if (name in TIMED_TRAPS) { S.prog.traps[TIMED_TRAPS[name]] += d; notify(`${name}! Lasts ${d} songs.`); }
+    else if (name === 'Encore Ticket') { S.prog.encore++; notify('Encore Ticket: your next counted answer is worth 2.'); }
+    else if (name === 'Streak Shield') { S.prog.shield++; notify('Streak Shield ready.'); }
+    else if (name === 'Hype Cheer') {
+      S.prog.total += 2;
+      for (const k of Object.keys(S.prog.traps)) if (S.prog.traps[k] > 0) S.prog.traps[k]--;
+      notify('Hype Cheer! +2 milestone progress, and active traps end a song sooner.');
+    }
+    else if (name === 'Streak Wipe Trap') { S.game.streak = 0; notify('Streak Wipe Trap! Your streak is gone.'); }
+    else if (name === 'Tax Collector Trap') { S.prog.total = Math.max(0, S.prog.total - 5); notify('Tax Collector Trap! -5 milestone progress.'); }
     applyTraps();
   }
 
@@ -326,7 +473,7 @@
     S.game.streak = 0;
     S.prog.traps.mute += 1;
     applyTraps(); saveProg();
-    say(`Death Link from ${d.source || 'someone'}${d.cause ? `: ${d.cause}` : ''} Streak wiped, next song muted.`);
+    notify(`Death Link from ${d.source || 'someone'}${d.cause ? `: ${d.cause}` : ''} Streak wiped, next song muted.`);
   }
 
   // ---------- traps (cosmetic only: CSS and the volume toggle) ----------
@@ -378,6 +525,7 @@
         bump(S.prog.rarity, song.tier);
         song.genres.filter(genreCounts).forEach(x => { bump(S.prog.genre, x); g.genres.add(x); });
         g.types.add(song.type); g.decades.add(song.decade);
+        if (song.season) { bump(S.prog.season, song.season); g.seasons.add(song.season); }
         if (own.onList) { S.prog.listOn++; g.listOn++; } else { S.prog.listOff++; g.listOff++; }
         status = weight === 2 ? 'counted x2 (Encore)' : 'counted';
       } else if (S.prog.shield > 0) {
@@ -415,6 +563,7 @@
       case 'genre': return [count('genre', c.key), c.n];
       case 'format': return [count('format', c.key), c.n];
       case 'rarity': return [count('rarity', c.key), c.n];
+      case 'season': return [count('season', c.key), c.n];
       case 'streak': return [g.best, c.n];
       case 'flawless': return [g.eligible === g.eligibleCorrect ? g.eligible : 0, c.n];
       case 'accuracy': return [g.eligibleCorrect * 100 >= c.pct * g.eligible ? g.eligible : 0, c.n];
@@ -422,6 +571,7 @@
       case 'game_types': return [g.types.size, c.n];
       case 'game_decades': return [g.decades.size, c.n];
       case 'game_genres': return [g.genres.size, c.n];
+      case 'game_seasons': return [g.seasons.size, c.n];
       case 'list_on': return [P.listOn, c.n];
       case 'list_off': return [P.listOff, c.n];
       case 'game_list_mix': return [Math.min(g.listOn, g.listOff), c.n];
@@ -445,27 +595,48 @@
     if (D.goal === 'finale' && !S.prog.finaleDone && S.fragments >= D.fragments_required &&
         g.eligible >= D.finale_songs && g.eligibleCorrect * 100 >= D.finale_accuracy * g.eligible) {
       S.prog.finaleDone = true;
-      say('Grand Finale cleared!');
+      notify('Grand Finale cleared!');
       saveProg();
     }
     if (!S.goalSent && S.fragments >= D.fragments_required && (D.goal === 'fragments' || S.prog.finaleDone)) {
       S.goalSent = true;
       send([{ cmd: 'StatusUpdate', status: 30 }]);
-      say('Goal complete!');
+      notify('Goal complete!');
     }
     render();
   }
 
   // ---------- lobby guide ----------
-  function vintageRanges() {
-    if (!gated('Decades')) return 'any';
+  /** Unlocked decades merged into [from, to] year ranges; null means open-ended. */
+  function yearRanges() {
     const idx = DECADES.map((d, i) => (S.unlocks.decades.has(d) ? i : -1)).filter(i => i >= 0);
     const runs = [];
     for (const i of idx) { const last = runs[runs.length - 1]; if (last && last[1] === i - 1) last[1] = i; else runs.push([i, i]); }
-    return runs.map(([a, b]) => {
-      const from = DECADE_YEARS[DECADES[a]][0], to = DECADE_YEARS[DECADES[b]][1];
-      return from === null ? `up to ${to}` : to === null ? `${from} onward` : `${from}–${to}`;
-    }).join(', ') || 'none';
+    return runs.map(([a, b]) => [DECADE_YEARS[DECADES[a]][0], DECADE_YEARS[DECADES[b]][1]]);
+  }
+  function vintageRanges() {
+    if (!gated('Decades')) return 'any';
+    return yearRanges().map(([from, to]) => (from === null ? `up to ${to}` : to === null ? `${from} onward` : `${from}–${to}`))
+      .join(', ') || 'none';
+  }
+  /** What the room settings should be for the current unlocks. Ungated categories are left as they are. */
+  function lobbyWish() {
+    const U = S.unlocks, want = {};
+    if (gated('Song Types')) want.types = Object.values(TYPES).filter(t => U.types.has(t));
+    if (gated('Decades')) want.years = yearRanges();
+    if (gated('Formats')) want.formats = FORMATS.filter(f => U.formats.has(f));
+    if (gated('Rarity')) want.difficulty = [tierFloor(TIERS[maxTier()]), 100];
+    if (gated('Genres')) want.genres = GENRES.filter(g => U.genres.has(g));
+    if (songSource() === 'own_list') want.watchedOnly = true;
+    return want;
+  }
+  function applyLobby(out = say) {
+    if (!S.connected || !S.unlocks) return out('Connect to Archipelago first.');
+    const r = amqApplyLobby(lobbyWish());
+    if (r.error) return out(r.error);
+    const parts = [r.changed ? `Lobby updated: ${r.done.join(', ')}.` : 'The lobby already matches your unlocks.'];
+    if (r.manual.length) parts.push(`Set by hand: ${r.manual.join(', ')}.`);
+    out(parts.join(' '));
   }
   function lobbyGuide() {
     const U = S.unlocks;
@@ -527,7 +698,8 @@
         h += P.finaleDone ? 'Finale: cleared<br>' : S.fragments >= D.fragments_required
           ? `<b>Finale open:</b> ${D.finale_songs}+ counted songs at ${D.finale_accuracy}% in one game<br>` : '';
       }
-      h += section('guide', 'Lobby settings', '<table>' + lobbyGuide().map(([k, v]) => `<tr><td class="dim">${k}</td><td>${esc(v)}</td></tr>`).join('') + '</table>');
+      h += section('guide', 'Lobby settings', '<table>' + lobbyGuide().map(([k, v]) => `<tr><td class="dim">${k}</td><td>${esc(v)}</td></tr>`).join('') + '</table>' +
+        '<button id="ap-lobby">Apply to room (host only)</button>');
       const open = D.checks.filter(c => !S.checked.has(c.id)).map(c => {
         const [a, b] = progressOf(c, false);
         return { c, a: Math.min(a, b), b };
@@ -539,17 +711,23 @@
         return `<tr><td>${esc(c.name)}${note}</td><td style="width:70px"><div class="bar"><i style="width:${Math.round(100 * a / b)}%"></i></div><span class="dim">${a}/${b}</span></td></tr>`;
       }).join('') + '</table>');
     }
-    h += section('log', 'Log', `<div style="max-height:140px;overflow:auto">${S.log.slice(-25).map(esc).join('<br>')}</div>`);
+    const chatOpt = (v, label) => `<option value="${v}"${S.chatMode === v ? ' selected' : ''}>${label}</option>`;
+    h += section('log', 'Log', `<div style="max-height:140px;overflow:auto">${S.log.slice(-25).map(esc).join('<br>')}</div>` +
+      `<span class="dim">Show in AMQ chat</span> <select id="ap-chat">${chatOpt('mine', 'my items, hints, chat')}${chatOpt('all', 'everything')}${chatOpt('off', 'nothing')}</select>` +
+      '<br><span class="dim">Type /ap help in AMQ chat for commands.</span>');
     body.innerHTML = h;
     const $ = sel => body.querySelector(sel);
-    const go = $('#ap-go'), dc = $('#ap-dc');
+    const go = $('#ap-go'), dc = $('#ap-dc'), lob = $('#ap-lobby'), chat = $('#ap-chat');
     if (go) go.onclick = () => connect($('#ap-url').value, $('#ap-slot').value, $('#ap-pw').value);
     if (dc) dc.onclick = () => { disconnect(); say('Disconnected.'); };
+    if (lob) lob.onclick = () => applyLobby();
+    if (chat) chat.onchange = () => { S.chatMode = chat.value; save('chat', chat.value); };
   }
 
   // ---------- boot ----------
   window.AMQAP = { state: S, connect, disconnect, handle, onAnswerResults, onQuizOver, onQuizReady, extractSong, extractOwn,
-    lobbyGuide, stageLock, open: () => { panel.style.display = 'block'; render(); } };
+    lobbyGuide, lobbyWish, lobbySettingsFor, applyLobby, apCommand, stageLock,
+    open: () => { panel.style.display = 'block'; render(); } };
   const wait = setInterval(() => {
     if (typeof Listener === 'undefined' || !document.body) return;
     clearInterval(wait);
@@ -561,5 +739,14 @@
     listen('quiz ready', onQuizReady);
     listen('play next song', applyTraps); // AMQ resets volume per song; re-assert the mute trap
     listen('quiz over', onQuizOver);
+    hookChatInput(apCommand);
+    let lastEcho = { text: null, at: 0 }; // both chat events can carry the same message; never spend a hint twice
+    const fromChat = p => ownChatCommands(p).forEach(text => {
+      if (text === lastEcho.text && Date.now() - lastEcho.at < 3000) return;
+      lastEcho = { text, at: Date.now() };
+      apCommand(text);
+    });
+    listen('game chat update', fromChat);
+    listen('Game Chat Message', fromChat);
   }, 500);
 })();

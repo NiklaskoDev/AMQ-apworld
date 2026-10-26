@@ -14,12 +14,13 @@ STAGES = ["Warm-Up Lobby", "Listening Booth", "Recording Studio", "Concert Hall"
 MAX_MILESTONES = 50
 MILESTONE_STEPS = range(5, 26)
 EVENT_FINALE = "Grand Finale"
+SEASONS = ["Winter", "Spring", "Summer", "Fall"]  # AMQ's vintage names, e.g. "Spring 2010"
 
 # "Correct Answers: N" has id BASE_ID + N. Every other check gets its group's fixed block plus its index within the
 # group, so appending a check to a group never shifts existing ids.
 GROUP_OFFSETS = {
     "Song Types": 2000, "Decades": 2100, "Genres": 2200, "Formats": 2300, "Rarity": 2400,
-    "Streaks": 2500, "Challenges": 2600, "Multiplayer": 2700, "Song Source": 2800,
+    "Streaks": 2500, "Challenges": 2600, "Multiplayer": 2700, "Song Source": 2800, "Seasons": 2900,
 }
 
 
@@ -61,7 +62,8 @@ def milestone_name(n: int) -> str:
 
 
 def build_check_specs(milestone_count: int, milestone_step: int, challenges: bool, multiplayer: bool,
-                      list_checks: bool = False, free_tiers: int = DEFAULT_FREE_RARITY_TIERS) -> list[CheckSpec]:
+                      list_checks: bool = False, free_tiers: int = DEFAULT_FREE_RARITY_TIERS,
+                      seasons: bool = False) -> list[CheckSpec]:
     specs: list[CheckSpec] = []
 
     for i in range(milestone_count):
@@ -113,6 +115,12 @@ def build_check_specs(milestone_count: int, milestone_step: int, challenges: boo
             specs.append(CheckSpec(f"Genre Sampler: {n} Genres in One Game", "game_genres", stage, "Challenges",
                                    n=n, reqs=(Req("Genres", tuple(GENRE_ITEMS.values()), n),)))
 
+    if seasons:
+        for season in SEASONS:
+            specs.append(CheckSpec(f"{season} Listener: 10 Correct", "season", 1, "Seasons", key=season, n=10))
+        specs.append(CheckSpec("Four Seasons: Winter, Spring, Summer and Fall in One Game", "game_seasons", 1,
+                               "Seasons", n=len(SEASONS)))
+
     if list_checks:  # song_source: mixed
         for n, stage in ((10, 0), (25, 1), (50, 2)):
             specs.append(CheckSpec(f"Home Turf: {n} Correct from Your List", "list_on", stage, "Song Source", n=n))
@@ -137,7 +145,7 @@ def _build_ids() -> dict[str, int]:
         for i in range(1, MAX_MILESTONES + 1):
             ids[milestone_name(step * i)] = BASE_ID + step * i
     per_group: dict[str, int] = {}
-    for spec in build_check_specs(0, 1, True, True, True):
+    for spec in build_check_specs(0, 1, True, True, True, seasons=True):
         index = per_group.get(spec.group, 0)
         assert index < 100, f"group {spec.group} overflowed its id block"
         per_group[spec.group] = index + 1
@@ -148,7 +156,7 @@ def _build_ids() -> dict[str, int]:
 LOCATION_NAME_TO_ID = _build_ids()
 
 LOCATION_GROUPS: dict[str, set[str]] = {}
-for _spec in build_check_specs(MAX_MILESTONES, max(MILESTONE_STEPS), True, True, True):
+for _spec in build_check_specs(MAX_MILESTONES, max(MILESTONE_STEPS), True, True, True, seasons=True):
     if _spec.group != "Milestones":
         LOCATION_GROUPS.setdefault(_spec.group, set()).add(_spec.name)
 LOCATION_GROUPS["Milestones"] = {name for name in LOCATION_NAME_TO_ID if name.startswith("Correct Answers: ")}

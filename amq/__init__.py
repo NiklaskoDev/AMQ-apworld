@@ -17,7 +17,7 @@ from .locations import (
 )
 from .options import AMQOptions, OPTION_GROUPS, SongSource
 
-CLIENT_VERSION = 2
+CLIENT_VERSION = 3
 
 logger = logging.getLogger("Anime Music Quiz")
 
@@ -70,7 +70,7 @@ class AMQWorld(World):
         def specs_for(milestones: int) -> list[CheckSpec]:
             return build_check_specs(milestones, o.milestone_step.value, bool(o.challenge_checks),
                                      bool(o.multiplayer_checks), o.song_source.value == SongSource.option_mixed,
-                                     o.free_difficulty_tiers.value)
+                                     o.free_difficulty_tiers.value, bool(o.season_checks))
 
         milestones = o.milestone_count.value
         self.specs = specs_for(milestones)

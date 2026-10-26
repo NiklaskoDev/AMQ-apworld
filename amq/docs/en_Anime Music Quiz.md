@@ -72,6 +72,8 @@ Everything is detected from songs you answer in the real game:
 * Marathons: long games
 * Variety challenges: Triple Threat (all three song types in one game), Time Capsule (several decades),
   Genre Sampler (several genres)
+* Seasons (`season_checks`, on by default): 10 correct songs from each airing season (Winter, Spring, Summer, Fall)
+  and Four Seasons (all four in one game). Seasons are never locked by items.
 * Optional multiplayer placements (podium with 4+ players, wins, wins with 8+ players)
 
 Songs outside your current unlocks are ignored: they don't count and don't break streaks. The client tells you why
@@ -81,7 +83,7 @@ a song was ignored and shows lobby settings that match your unlocks.
 
 * **Encore Ticket**: your next counted answer is worth two toward milestones
 * **Streak Shield**: absorbs your next wrong answer for streaks
-* **Hype Cheer**: pure applause
+* **Hype Cheer**: +2 cumulative milestone progress, and every active timed trap ends one song sooner
 
 ## Traps
 
@@ -92,6 +94,14 @@ Traps are cosmetic. They never touch your answers or the game itself.
 * **Tiny Text Trap**: the answer box text shrinks to near-unreadable size
 * **Streak Wipe Trap**: your current streak resets
 * **Tax Collector Trap**: you lose 5 points of cumulative milestone progress
+
+## AMQ chat
+
+The client can post multiworld messages into AMQ's chat: by default your own items and hints, chat and command
+replies (choose "everything" or "nothing" in the panel's Log section). Traps and Death Links are announced there too.
+Type `/ap <message>` in AMQ's chat to talk to the multiworld; server commands work, for example `/ap !hint <item>` or
+`/ap !remaining`. `/ap lobby` applies your unlocks to the room settings and `/ap help` lists the commands. These lines
+are not sent to the AMQ room.
 
 ## Death Link
 

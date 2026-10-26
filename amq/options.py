@@ -158,6 +158,11 @@ class ChallengeChecks(DefaultOnToggle):
     display_name = "Challenge Checks"
 
 
+class SeasonChecks(DefaultOnToggle):
+    """Add checks for the season an anime aired in (Winter, Spring, Summer, Fall). Seasons are never locked."""
+    display_name = "Season Checks"
+
+
 class MultiplayerChecks(Toggle):
     """Add checks for placing well in games with other players. Leave off for solo play."""
     display_name = "Multiplayer Checks"
@@ -215,6 +220,7 @@ class AMQOptions(PerGameCommonOptions):
     milestone_count: MilestoneCount
     milestone_step: MilestoneStep
     challenge_checks: ChallengeChecks
+    season_checks: SeasonChecks
     multiplayer_checks: MultiplayerChecks
     trap_percentage: TrapPercentage
     trap_weights: TrapWeights
@@ -228,7 +234,7 @@ OPTION_GROUPS = [
     OptionGroup("Goal", [Goal, FragmentsRequired, FragmentExtraPercent, FinaleSongs, FinaleAccuracy]),
     OptionGroup("Unlocks", [UnlockCategories, SongSource, StartingSongType, StartingDecades, StartingGenres]),
     OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers]),
-    OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, MultiplayerChecks]),
+    OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, SeasonChecks, MultiplayerChecks]),
     OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration]),
     OptionGroup("Death Link", [DeathLink, DeathLinkMisses]),
 ]

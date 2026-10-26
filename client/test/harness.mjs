@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'amq_archipelago.user.js');
 
 function fakeDocument() {
-  const byId = {};
+  const byId = {}, handlers = {};
   const element = tag => ({
     tagName: tag, style: {}, dataset: {}, children: [], textContent: '', innerHTML: '', id: '',
     appendChild(child) { this.children.push(child); if (child.id) byId[child.id] = child; return child; },
@@ -15,7 +15,15 @@ function fakeDocument() {
     querySelectorAll: () => [],
   });
   return { head: element('head'), body: element('body'), createElement: element, getElementById: id => byId[id] || null,
-    querySelectorAll: () => [] };
+    querySelectorAll: () => [],
+    addEventListener(type, fn) { (handlers[type] ||= []).push(fn); },
+    /** Dispatches a key event; returns whether a handler stopped it. */
+    key(type, key, target) {
+      const ev = { type, key, target, stopped: false, preventDefault() { this.prevented = true; },
+        stopImmediatePropagation() { this.stopped = true; } };
+      (handlers[type] || []).forEach(fn => fn(ev));
+      return ev.stopped;
+    } };
 }
 
 export async function loadClient({ WebSocket, storage = new Map(), selfId = 0 } = {}) {
@@ -43,11 +51,11 @@ export async function loadClient({ WebSocket, storage = new Map(), selfId = 0 } 
 }
 
 /** An "answer results" payload. Placeholder strings only: no real titles or songs. */
-export function answer({ type = 1, year = 2005, format = 'TV', difficulty = 45.5, genres = ['Action'],
+export function answer({ type = 1, year = 2005, season = 'Spring', format = 'TV', difficulty = 45.5, genres = ['Action'],
   correct = true, scores = [0, 0], listStatus = undefined } = {}) {
   return {
     songInfo: {
-      type, typeNumber: 1, vintage: `Spring ${year}`, animeType: format, animeDifficulty: difficulty,
+      type, typeNumber: 1, vintage: `${season} ${year}`, animeType: format, animeDifficulty: difficulty,
       animeGenre: genres, animeTags: [], animeNames: { english: 'Placeholder', romaji: 'Placeholder' },
       songName: 'Placeholder', artist: 'Placeholder', altAnimeNames: [], altAnimeNamesAnswers: [],
     },

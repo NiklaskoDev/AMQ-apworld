@@ -4,8 +4,8 @@ import { beforeEach, test } from 'node:test';
 import { answer, FakeSocket, loadClient } from './harness.mjs';
 
 const ITEMS = {
-  'Opening Pass': 1, 'Ending Pass': 2, 'Decade Pass: 2000s': 12, 'Genre Key: Action': 20, 'Format Pass: TV': 60,
-  'Progressive Rarity Lens': 70, 'Mixtape Fragment': 71, 'Encore Ticket': 80, 'Streak Shield': 81,
+  'Opening Pass': 1, 'Ending Pass': 2, 'Decade Pass: 1980s & Earlier': 10, 'Decade Pass: 2000s': 12, 'Genre Key: Action': 20, 'Format Pass: TV': 60,
+  'Progressive Rarity Lens': 70, 'Mixtape Fragment': 71, 'Encore Ticket': 80, 'Streak Shield': 81, 'Hype Cheer': 82,
   'Mute Trap': 90, 'Reverse Typing Trap': 91, 'Streak Wipe Trap': 93, 'Tax Collector Trap': 94,
 };
 const CHECKS = [
@@ -18,7 +18,7 @@ const CHECKS = [
   { id: 2701, name: 'Win a Multiplayer Game', kind: 'mp_win', n: 2, stage: 0 },
 ];
 const slotData = extra => ({
-  client_version: 2, goal: 'fragments', fragments_required: 4, finale_songs: 20, finale_accuracy: 70,
+  client_version: 3, goal: 'fragments', fragments_required: 4, finale_songs: 20, finale_accuracy: 70,
   stages: ['A', 'B', 'C', 'D'], stage_fragments: [0, 1, 2, 3],
   gated: ['Song Types', 'Decades', 'Genres', 'Formats', 'Rarity'], trap_duration: 2,
   death_link: true, death_link_misses: 3, checks: CHECKS, ...extra,
@@ -289,4 +289,169 @@ test('seeds without difficulty settings keep the old defaults', async () => {
   assert.match(S.lastSong, /Medium → counted/);
   fire('answer results', answer({ difficulty: 20 }));
   assert.match(S.lastSong, /Hard songs locked/);
+});
+
+test('hype cheer adds milestone progress and shortens active traps', async () => {
+  const { ws, fire, S } = await connected();
+  for (let i = 0; i < 8; i++) fire('answer results', answer());
+  sentChecks(ws);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Mute Trap', 'Hype Cheer']) }]);
+  assert.equal(S.prog.total, 10);
+  assert.deepEqual(sentChecks(ws), [1010], 'the cheer can complete a milestone');
+  assert.equal(S.prog.traps.mute, 1, 'two-song mute trap cut to one');
+});
+
+const SEASON_CHECKS = [
+  { id: 2900, name: 'Fall Listener: 10 Correct', kind: 'season', key: 'Fall', n: 2, stage: 0 },
+  { id: 2904, name: 'Four Seasons', kind: 'game_seasons', n: 4, stage: 0 },
+];
+
+test('seasons are read from the vintage and counted per song and per game', async () => {
+  const { ws, fire, S, api } = await connected({ slot: { checks: [...CHECKS, ...SEASON_CHECKS] } });
+  assert.equal(api.extractSong(answer({ season: 'Autumn' })).season, 'Fall');
+  assert.equal(api.extractSong({ songInfo: { vintage: '2005' } }).season, null);
+  fire('quiz ready', {});
+  fire('answer results', answer({ season: 'Fall' }));
+  fire('answer results', answer({ season: 'Fall', type: 2 }));
+  assert.equal(S.prog.season.Fall, 1, 'ignored songs do not count');
+  fire('answer results', answer({ season: 'Winter' }));
+  fire('answer results', answer({ season: 'Summer' }));
+  sentChecks(ws);
+  fire('answer results', answer({ season: 'Fall' }));
+  assert.ok(sentChecks(ws).includes(2900));
+  fire('quiz ready', {});
+  fire('answer results', answer({ season: 'Spring' }));
+  assert.ok(!sentChecks(ws).includes(2904), 'a new game starts the season set over');
+});
+
+test('progress saved by an older client gains the season bucket', async () => {
+  const remote = { v: 1, total: 3, type: {}, decade: {}, genre: {}, format: {}, rarity: {}, listOn: 0, listOff: 0,
+    processed: 4, encore: 0, shield: 0, traps: { mute: 0, reverse: 0, tiny: 0 }, finaleDone: false };
+  const { fire, S } = await connected({ remote });
+  fire('answer results', answer({ season: 'Winter' }));
+  assert.equal(S.prog.season.Winter, 1);
+  assert.equal(S.prog.total, 4);
+});
+
+function withChat(sandbox) {
+  const lines = [];
+  sandbox.gameChat = { systemMessage: text => lines.push(text) };
+  return lines;
+}
+
+test('chat bridge posts relevant multiworld messages and traps to AMQ chat', async () => {
+  const { ws, S, sandbox } = await connected();
+  const lines = withChat(sandbox);
+  const itemSend = (from, to) => ({ cmd: 'PrintJSON', type: 'ItemSend', receiving: to, item: { item: 5, location: 9, player: from },
+    data: [{ type: 'player_id', text: String(from) }, { text: ' sent an item' }] });
+  ws.server([itemSend(2, 1)]);
+  ws.server([itemSend(2, 3)]);
+  ws.server([{ cmd: 'PrintJSON', type: 'Join', data: [{ text: 'Someone joined' }] }]);
+  ws.server([{ cmd: 'PrintJSON', type: 'Chat', slot: 2, message: 'hi', data: [{ text: 'Friend: hi <b>' }] }]);
+  assert.deepEqual(lines, ['[AP] Friend sent an item', '[AP] Friend: hi &lt;b&gt;'], 'others\' items and joins are skipped, text is escaped');
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Streak Wipe Trap']) }]);
+  assert.match(lines.at(-1), /Streak Wipe Trap!/);
+  S.chatMode = 'all';
+  ws.server([itemSend(2, 3)]);
+  assert.equal(lines.length, 4);
+  S.chatMode = 'off';
+  ws.server([itemSend(2, 1)]);
+  ws.server([{ cmd: 'ReceivedItems', index: 5, items: items(['Mute Trap']) }]);
+  assert.equal(lines.length, 4);
+  assert.equal(S.log.at(-1), 'Mute Trap! Lasts 2 songs.', 'the panel log still gets everything');
+});
+
+test('/ap in AMQ chat is intercepted and sent to the multiworld', async () => {
+  const { ws, sandbox, fire } = await connected();
+  const lines = withChat(sandbox);
+  const doc = sandbox.document;
+  const input = { id: 'gcInput', value: '/ap !hint Big Sword' };
+  assert.equal(doc.key('keydown', 'Enter', input), true);
+  assert.equal(doc.key('keypress', 'Enter', input), true, 'AMQ never sees the Enter');
+  doc.key('keyup', 'Enter', input);
+  assert.equal(input.value, '');
+  assert.deepEqual(ws.take('Say').map(m => m.text), ['!hint Big Sword']);
+
+  const plain = { id: 'gcInput', value: 'hello room' };
+  assert.equal(doc.key('keydown', 'Enter', plain), false);
+  assert.equal(doc.key('keypress', 'Enter', plain), false);
+  assert.equal(doc.key('keydown', 'Enter', { id: 'qpAnswerInput', value: '/ap x' }), false, 'only the chat box');
+
+  input.value = '/ap help';
+  doc.key('keydown', 'Enter', input);
+  assert.match(lines.at(-1), /\/ap !hint/);
+  assert.equal(ws.take('Say').length, 0);
+
+  fire('game chat update', { messages: [{ sender: 'me', message: '/ap !remaining' }, { sender: 'rival', message: '/ap !release' }] });
+  assert.deepEqual(ws.take('Say').map(m => m.text), ['!remaining'], 'fallback: own echoed commands only');
+  fire('Game Chat Message', { sender: 'me', message: '/ap !remaining' });
+  assert.equal(ws.take('Say').length, 0, 'the same echo from the other chat event is not sent twice');
+});
+
+/** A room settings object shaped like AMQ's. */
+const roomSettings = () => ({
+  numberOfSongs: 20,
+  songType: { standardValue: { openings: true, endings: true, inserts: true }, advancedValue: { openings: 0, endings: 0, inserts: 0, random: 20 } },
+  vintage: { standardValue: { years: [1944, 2026], seasons: [0, 3] }, advancedValueList: [] },
+  type: { tv: true, movie: true, ova: true, ona: true, special: true },
+  songDifficulity: { advancedOn: false, standardValue: { easy: true, medium: true, hard: true }, advancedValue: [0, 100] },
+  genre: [],
+  songSelection: { standardValue: 1, advancedValue: { random: 20, unwatched: 0, watched: 0 } },
+  guessTime: { randomOn: false, standardValue: 20 },
+});
+function withRoom(sandbox, { host = true } = {}) {
+  const calls = [];
+  sandbox.lobby = { inLobby: true, isHost: host, settings: roomSettings(), changeGameSettings() { calls.push('commit'); } };
+  sandbox.hostModal = { getSettings: () => roomSettings(), changeSettings: diff => calls.push(JSON.parse(JSON.stringify(diff))),
+    DEFUALT_SETTINGS: { vintage: { standardValue: { years: [1944, 2026] } } } };
+  sandbox.idTranslator = { genreNames: { 1: 'Action', 2: 'Adventure', 3: 'Comedy', 17: 'Slice of Life' } };
+  return calls;
+}
+
+test('apply to room writes the unlocks into the host settings', async () => {
+  const { ws, S, api, sandbox } = await connected({ slot: { song_source: 'own_list' } });
+  const calls = withRoom(sandbox);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Ending Pass', 'Progressive Rarity Lens']) }]);
+  api.applyLobby();
+  await tick();
+  const [diff, commit] = calls;
+  assert.equal(commit, 'commit');
+  assert.deepEqual(diff.songType.standardValue, { openings: true, endings: true, inserts: false });
+  assert.deepEqual(diff.vintage.standardValue, { years: [2000, 2009], seasons: [0, 3] });
+  assert.deepEqual(diff.type, { tv: true, movie: false, ova: false, ona: false, special: false });
+  assert.deepEqual(diff.songDifficulity.advancedValue, [10, 100]);
+  assert.equal(diff.songDifficulity.advancedOn, true);
+  assert.deepEqual(diff.genre, [{ id: '1', state: 3 }]);
+  assert.equal(diff.songSelection.standardValue, 3);
+  assert.equal(diff.guessTime, undefined, 'only changed keys are sent');
+  assert.match(S.log.at(-1), /^Lobby updated: song types, vintage, anime type, difficulty, genres, song selection\.$/);
+
+  sandbox.lobby.settings = Object.assign(roomSettings(), diff);
+  calls.length = 0;
+  api.applyLobby();
+  assert.deepEqual(calls, []);
+  assert.match(S.log.at(-1), /already matches/);
+});
+
+test('apply to room explains what it cannot do', async () => {
+  const { ws, S, api, sandbox } = await connected();
+  api.applyLobby();
+  assert.equal(S.log.at(-1), 'Join a lobby first.');
+  const calls = withRoom(sandbox, { host: false });
+  api.applyLobby();
+  assert.equal(S.log.at(-1), 'Only the room host can change the settings.');
+  sandbox.lobby.isHost = true;
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Decade Pass: 1980s & Earlier']) }]);
+  api.applyLobby();
+  assert.match(S.log.at(-1), /Set by hand: vintage \(your decades are not one range\)\./);
+  assert.ok(calls.length > 0, 'the other categories are still applied');
+});
+
+test('ungated categories are left alone when applying', async () => {
+  const { api } = await connected({ slot: { gated: ['Song Types'] }, start: ['Opening Pass'] });
+  const s = roomSettings();
+  const r = api.lobbySettingsFor(s, api.lobbyWish());
+  assert.deepEqual(JSON.parse(JSON.stringify(r)), { done: ['song types'], manual: [] });
+  assert.deepEqual(s.vintage, roomSettings().vintage);
+  assert.deepEqual(s.genre, []);
 });

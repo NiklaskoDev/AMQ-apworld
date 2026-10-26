@@ -90,12 +90,35 @@ class TestStableIds(AMQTestBase):
         self.assertEqual(LOCATION_NAME_TO_ID["First Correct Opening"], BASE_ID + 2000)
         self.assertEqual(LOCATION_NAME_TO_ID["Genre Scholar: Action"], BASE_ID + 2200)
         self.assertEqual(LOCATION_NAME_TO_ID["Home Turf: 10 Correct from Your List"], BASE_ID + 2800)
+        self.assertEqual(LOCATION_NAME_TO_ID["Winter Listener: 10 Correct"], BASE_ID + 2900)
+        self.assertEqual(LOCATION_NAME_TO_ID[FOUR_SEASONS], BASE_ID + 2904)
         self.assertEqual(len(set(LOCATION_NAME_TO_ID.values())), len(LOCATION_NAME_TO_ID))
         self.assertEqual(len(set(ITEM_NAME_TO_ID.values())), len(ITEM_NAME_TO_ID))
 
     def test_groups_cover_everything(self) -> None:
         grouped = set().union(*LOCATION_GROUPS.values())
         self.assertEqual(grouped, set(LOCATION_NAME_TO_ID))
+
+
+FOUR_SEASONS = "Four Seasons: Winter, Spring, Summer and Fall in One Game"
+
+
+class TestSeasonChecks(AMQTestBase):
+    def test_on_by_default(self) -> None:
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertIn(FOUR_SEASONS, names)
+        self.assertIn("Fall Listener: 10 Correct", names)
+        self.assertFalse(self.can_reach_location("Fall Listener: 10 Correct"), "stage 1 needs fragments")
+        self.collect_by_name(FRAGMENT)
+        self.assertTrue(self.can_reach_location(FOUR_SEASONS), "seasons are never locked by items")
+
+
+class TestSeasonChecksOff(AMQTestBase):
+    options = {"season_checks": False}
+
+    def test_absent(self) -> None:
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertFalse(names & LOCATION_GROUPS["Seasons"])
 
 
 LIST_CHECKS = {"Home Turf: 10 Correct from Your List", "Uncharted: 10 Correct off Your List",
