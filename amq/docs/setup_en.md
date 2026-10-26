@@ -14,8 +14,10 @@
    then press Connect. Without `ws://` or `wss://` the client tries a secure connection first and falls back to an
    unencrypted one, which is what local servers need.
 
-The client reconnects by itself if the connection drops. Progress, boosts and pending traps are saved on the
-Archipelago server, so you can switch browsers without losing anything or getting traps twice.
+The client reconnects by itself if the connection drops, and keeps counting in the meantime: checks earned while
+offline are sent once it is back. Progress, boosts and pending traps are saved on the Archipelago server, so you can
+switch browsers without losing anything or getting traps twice. The panel's Backup section exports and imports
+progress for when the server can't be reached at all.
 
 ## Playing
 
@@ -26,6 +28,7 @@ Archipelago server, so you can switch browsers without losing anything or gettin
   listed so you can set it by hand. Songs outside your unlocks still play but are ignored, and the client warns you
   in chat when most of a game's songs don't count.
 * Type `/ap help` in AMQ's chat for the chat commands. `/ap !hint <item>` and other server commands work there.
+  `/ap next` suggests what to play and `/ap lobby next` focuses the room on it.
 * With `song_source: own_list` or `mixed`, link your anime list in AMQ and set the lobby's song selection to
   "watched" or a mix. The panel marks each song as "on list" or "off list".
 * Play solo or with friends. Spectating does nothing.
@@ -36,6 +39,7 @@ Archipelago server, so you can switch browsers without losing anything or gettin
 ## Generating
 
 Generate a template with the Archipelago Launcher's "Generate Template Options", edit it and generate as usual.
+The options page also has presets (Casual, Watched-only Strict, Sweaty, Short Async) to start from.
 If your options produce more items than checks, `milestone_count` is raised automatically (a warning is logged).
 
 ## Tracking

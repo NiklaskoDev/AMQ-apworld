@@ -32,6 +32,17 @@ CLOCK = "Progressive Guess Time"
 SAMPLE_POINTS = ["Start", "Middle", "End", "Random"]
 SAMPLE_ITEMS = {p: f"Sample Pass: {p}" for p in SAMPLE_POINTS[1:]}
 
+# AMQ's song categories; Standard is always open, the others need a pass (only with Song Category locked)
+SONG_CATEGORIES = ["Standard", "Instrumental", "Chanting", "Character"]
+CATEGORY_ITEMS = {c: f"Song Category: {c}" for c in SONG_CATEGORIES}
+# by the anime's score (the lobby "anime score" filter); the top two tiers are open, a lens adds each lower one
+SCORE_TIERS = ["Acclaimed", "Well Liked", "Mixed", "Overlooked"]
+SCORE_FLOORS = {"Acclaimed": 8, "Well Liked": 7, "Mixed": 6, "Overlooked": 0}
+FREE_SCORE_TIERS = 2
+SCORE_LENS = "Progressive Score Lens"
+DUB = "Dub Pass"
+REBROADCAST = "Rebroadcast Pass"
+
 SONG_TYPE_ITEMS = {t: f"{t} Pass" for t in SONG_TYPES}
 DECADE_ITEMS = {d: f"Decade Pass: {d}" for d in DECADES}
 GENRE_ITEMS = {g: f"Genre Key: {g}" for g in GENRES}
@@ -40,10 +51,13 @@ FORMAT_ITEMS = {f: f"Format Pass: {f}" for f in FORMATS}
 ENCORE = "Encore Ticket"
 SHIELD = "Streak Shield"
 CHEER = "Hype Cheer"
+MULLIGAN = "Mulligan"
+SPOTLIGHT = "Spotlight"
 
-TRAPS = ["Mute Trap", "Reverse Typing Trap", "Tiny Text Trap", "Streak Wipe Trap", "Tax Collector Trap"]
+# append-only, the list order is the id order
+TRAPS = ["Mute Trap", "Reverse Typing Trap", "Tiny Text Trap", "Streak Wipe Trap", "Tax Collector Trap", "Blind Trap"]
 
-FILLER_WEIGHTS = {ENCORE: 3, SHIELD: 3, CHEER: 4}
+FILLER_WEIGHTS = {ENCORE: 3, SHIELD: 3, CHEER: 4, MULLIGAN: 2, SPOTLIGHT: 2}
 
 
 class ItemData(NamedTuple):
@@ -72,7 +86,11 @@ def _build() -> dict[str, ItemData]:
     block(73, SAMPLE_ITEMS.values(), prog, "Sample Point")
     block(80, [ENCORE, SHIELD], ItemClassification.useful, "Boosts")
     block(82, [CHEER], ItemClassification.filler, "Boosts")
+    block(83, [MULLIGAN, SPOTLIGHT], ItemClassification.useful, "Boosts")
     block(90, TRAPS, ItemClassification.trap, "Traps")
+    block(100, CATEGORY_ITEMS.values(), prog, "Song Category")
+    block(110, [SCORE_LENS], prog, "Anime Score")
+    block(111, [DUB, REBROADCAST], prog, "Dub & Rebroadcast")
     return table
 
 
@@ -85,8 +103,9 @@ ITEM_GROUPS = {
     "Genre Key": set(GENRE_ITEMS.values()),
     "Format Pass": set(FORMAT_ITEMS.values()),
     "Sample Pass": set(SAMPLE_ITEMS.values()),
+    "Song Category": set(CATEGORY_ITEMS.values()),
     "Traps": set(TRAPS),
-    "Boosts": {ENCORE, SHIELD, CHEER},
+    "Boosts": {ENCORE, SHIELD, CHEER, MULLIGAN, SPOTLIGHT},
 }
 
 

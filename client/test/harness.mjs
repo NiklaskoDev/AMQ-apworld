@@ -52,12 +52,13 @@ export async function loadClient({ WebSocket, storage = new Map(), selfId = 0 } 
 
 /** An "answer results" payload. Placeholder strings only: no real titles or songs. */
 export function answer({ type = 1, year = 2005, season = 'Spring', format = 'TV', difficulty = 45.5, genres = ['Action'],
-  correct = true, scores = [0, 0], listStatus = undefined } = {}) {
+  correct = true, scores = [0, 0], listStatus = undefined, extra = {} } = {}) {
   return {
     songInfo: {
       type, typeNumber: 1, vintage: `${season} ${year}`, animeType: format, animeDifficulty: difficulty,
       animeGenre: genres, animeTags: [], animeNames: { english: 'Placeholder', romaji: 'Placeholder' },
       songName: 'Placeholder', artist: 'Placeholder', altAnimeNames: [], altAnimeNamesAnswers: [],
+      ...extra, // fields only some tests send (songCategory, animeScore, isDub, isRebroadcast)
     },
     players: [
       { gamePlayerId: 0, correct, score: scores[0], listStatus },

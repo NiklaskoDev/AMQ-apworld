@@ -7,6 +7,9 @@ const ITEMS = {
   'Opening Pass': 1, 'Ending Pass': 2, 'Decade Pass: 1980s & Earlier': 10, 'Decade Pass: 2000s': 12, 'Genre Key: Action': 20, 'Format Pass: TV': 60,
   'Progressive Rarity Lens': 70, 'Mixtape Fragment': 71, 'Progressive Guess Time': 72, 'Sample Pass: Middle': 73, 'Sample Pass: End': 74, 'Encore Ticket': 80, 'Streak Shield': 81, 'Hype Cheer': 82,
   'Mute Trap': 90, 'Reverse Typing Trap': 91, 'Tiny Text Trap': 92, 'Streak Wipe Trap': 93, 'Tax Collector Trap': 94,
+  'Mulligan': 83, 'Spotlight': 84, 'Blind Trap': 95, 'Song Category: Standard': 100, 'Song Category: Instrumental': 101,
+  'Song Category: Chanting': 102, 'Song Category: Character': 103, 'Progressive Score Lens': 110, 'Dub Pass': 111,
+  'Rebroadcast Pass': 112,
 };
 const CHECKS = [
   { id: 1010, name: 'Correct Answers: 10', kind: 'total', n: 10, stage: 0 },
@@ -34,6 +37,10 @@ async function connected({ storage, slot = {}, remote = null, seed = 'S1', selfI
   const c = await loadClient({ WebSocket: FakeSocket, storage, selfId });
   c.api.connect('ws://test:1', 'Me', '');
   await tick();
+  return { ...c, ws: handshake(c, { slot, remote, seed, start }) };
+}
+/** Plays the server side of a login on the newest socket. */
+function handshake(c, { slot = {}, remote = null, seed = 'S1', start = START } = {}) {
   const ws = FakeSocket.instances.at(-1);
   ws.server([{ cmd: 'RoomInfo', seed_name: seed, games: ['Anime Music Quiz', 'Other Game'] }]);
   assert.deepEqual(JSON.parse(JSON.stringify(ws.take('GetDataPackage')[0].games)).sort(), ['Anime Music Quiz', 'Other Game']);
@@ -50,7 +57,7 @@ async function connected({ storage, slot = {}, remote = null, seed = 'S1', selfI
   const get = ws.take('Get')[0];
   ws.server([{ cmd: 'Retrieved', keys: { [get.keys[0]]: remote } }]);
   assert.equal(c.S.ready, true);
-  return { ...c, ws };
+  return ws;
 }
 const sentChecks = ws => ws.take('LocationChecks').flatMap(m => m.locations);
 
@@ -667,4 +674,292 @@ test('a lobby letting in mostly locked songs gets one warning per game', async (
   for (let i = 0; i < 5; i++) fire('answer results', answer({ year: 1995 }));
   assert.equal(lines.filter(l => /didn't count/.test(l)).length, 2);
   assert.match(S.log.at(-1), /1990s locked/);
+});
+
+// ---------- song categories, anime score, dubs and rebroadcasts ----------
+const ALL_GATES = ['Song Types', 'Decades', 'Genres', 'Formats', 'Rarity'];
+const CATEGORY_CHECKS = [
+  { id: 3200, name: 'Standard Songs: 10 Correct', kind: 'category', key: 'Standard', n: 2, stage: 0 },
+  { id: 3201, name: 'Instrumental Songs: 1 Correct', kind: 'category', key: 'Instrumental', n: 1, stage: 0 },
+];
+
+test('song category: unreadable counts and warns once, locked categories are ignored until their pass', async () => {
+  const { ws, fire, S, api } = await connected({ slot: { gated: [...ALL_GATES, 'Song Category'], checks: [...CHECKS, ...CATEGORY_CHECKS] } });
+  sentChecks(ws);
+  fire('answer results', answer({ extra: { songCategory: 7 } }));
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 2, 'songs without a readable category still count');
+  assert.equal(S.log.filter(l => /Can't read the song category/.test(l)).length, 1);
+  assert.match(S.log.find(l => /Can't read the song category/.test(l)), /AMQ sent 7/);
+  fire('answer results', answer({ extra: { songCategory: 'Instrumental' } }));
+  assert.match(S.lastSong, /ignored \(Instrumental songs locked\)/);
+  fire('answer results', answer({ extra: { songCategory: 'standard' } }));
+  fire('answer results', answer({ extra: { songCategory: { name: 'Standard' } } }));
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3200), [3200]);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Song Category: Instrumental']) }]);
+  fire('answer results', answer({ extra: { songCategory: 'Instrumental' } }));
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3200), [3201]);
+  const room = { songCategories: { standard: true, instrumental: { openings: false, endings: true, inserts: true }, chanting: true, character: true } };
+  const r = api.lobbySettingsFor(room, api.lobbyWish());
+  assert.deepEqual(JSON.parse(JSON.stringify(room.songCategories)), { standard: true,
+    instrumental: { openings: true, endings: true, inserts: true }, chanting: false, character: false });
+  assert.ok(r.done.includes('song categories'));
+  assert.ok(api.lobbySettingsFor({}, api.lobbyWish()).manual.includes('song categories'), 'unknown shape: set by hand');
+  assert.ok(api.missingUnlocks().includes('Song Category: Chanting'));
+});
+
+const SCORE_CHECKS = [
+  { id: 3300, name: 'Acclaimed Anime Songs x10', kind: 'score', key: 'Acclaimed', n: 1, stage: 0 },
+  { id: 3302, name: 'Mixed Anime Songs x5', kind: 'score', key: 'Mixed', n: 1, stage: 0 },
+];
+
+test('anime score: open tiers count, lower ones need lenses, unscored anime are ignored', async () => {
+  const { ws, fire, S, api } = await connected({ slot: { gated: [...ALL_GATES, 'Anime Score'], checks: [...CHECKS, ...SCORE_CHECKS] } });
+  sentChecks(ws);
+  fire('answer results', answer({ extra: { animeScore: 8.4 } }));
+  assert.match(S.lastSong, /Acclaimed anime → counted/);
+  fire('answer results', answer({ extra: { animeScore: '7.1' } }));
+  assert.equal(S.prog.score['Well Liked'], 1);
+  fire('answer results', answer({ extra: { animeScore: 6.5 } }));
+  assert.match(S.lastSong, /ignored \(Mixed anime locked\)/);
+  fire('answer results', answer({ extra: { animeScore: null } }));
+  assert.match(S.lastSong, /ignored \(unscored anime\)/);
+  assert.equal(api.lobbyGuide().find(([k]) => k === 'Anime score')[1], '7–10');
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Progressive Score Lens']) }]);
+  fire('answer results', answer({ extra: { animeScore: 6.5 } }));
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3300).sort(), [3300, 3302]);
+  const room = { animeScore: { standardValue: [2, 10], advancedOn: true } };
+  api.lobbySettingsFor(room, api.lobbyWish());
+  assert.deepEqual(JSON.parse(JSON.stringify(room.animeScore)), { standardValue: [6, 10], advancedOn: false });
+});
+
+test('dubs and rebroadcasts: ignored until their pass, then counted toward their checks', async () => {
+  const DUBS = [{ id: 3400, name: 'First Correct Dub', kind: 'dub', key: 'Dub', n: 1, stage: 0 },
+    { id: 3402, name: 'First Correct Rebroadcast', kind: 'dub', key: 'Rebroadcast', n: 1, stage: 0 }];
+  const { ws, fire, S, api } = await connected({ slot: { gated: [...ALL_GATES, 'Dub & Rebroadcast'], checks: [...CHECKS, ...DUBS] } });
+  sentChecks(ws);
+  fire('answer results', answer());
+  assert.equal(S.log.filter(l => /dubs and rebroadcasts/.test(l)).length, 1, 'missing flags warn once');
+  fire('answer results', answer({ extra: { isDub: true, isRebroadcast: false } }));
+  assert.match(S.lastSong, /ignored \(dub songs locked\)/);
+  fire('answer results', answer({ extra: { isDub: false, isRebroadcast: true } }));
+  assert.match(S.lastSong, /ignored \(rebroadcasts locked\)/);
+  const room = { dubSongs: true, rebroadcastSongs: true };
+  api.lobbySettingsFor(room, api.lobbyWish());
+  assert.deepEqual(room, { dubSongs: false, rebroadcastSongs: false });
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Dub Pass', 'Rebroadcast Pass']) }]);
+  fire('answer results', answer({ extra: { isDub: true, isRebroadcast: false } }));
+  fire('answer results', answer({ extra: { isDub: false, isRebroadcast: true } }));
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3400).sort(), [3400, 3402]);
+});
+
+// ---------- quick draw, year collector, nexus ----------
+test('quick draw: answers locked in with Enter soon after the song starts count, slow or unsent ones do not', async () => {
+  const QUICK = [{ id: 3500, name: 'Quick Draw: 2 Correct within 5s', kind: 'quick', n: 2, secs: 5, stage: 0 },
+    { id: 3502, name: 'Quick Draw: 1 Correct within 3s', kind: 'quick', n: 1, secs: 3, stage: 0 }];
+  const { ws, fire, S, sandbox } = await connected({ slot: { checks: [...CHECKS, ...QUICK] } });
+  sentChecks(ws);
+  const input = { id: 'qpAnswerInput', value: 'x' };
+  fire('play next song', {});
+  sandbox.document.key('keydown', 'Enter', input);
+  fire('answer results', answer());
+  assert.equal(S.prog.quick[3], 1);
+  assert.match(S.lastSong, /counted in 0\.\ds/);
+  fire('play next song', {});
+  fire('answer results', answer());
+  assert.equal(S.prog.quick[5], 1, 'no Enter: autosubmitted at the end, not quick');
+  fire('play next song', {});
+  S.songStart -= 4000;
+  sandbox.document.key('keydown', 'Enter', input);
+  fire('answer results', answer());
+  assert.deepEqual([S.prog.quick[3], S.prog.quick[5]], [1, 2]);
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3500).sort(), [3500, 3502]);
+});
+
+test('year collector counts distinct years, nexus checks count answers in Nexus', async () => {
+  const MORE = [{ id: 2612, name: 'Year Collector: 10 Different Years', kind: 'years', n: 3, stage: 0 },
+    { id: 3600, name: 'Nexus Explorer: 10 Correct in Nexus', kind: 'nexus', n: 2, stage: 0 }];
+  const { ws, fire, S, sandbox } = await connected({ slot: { checks: [...CHECKS, ...MORE] } });
+  sentChecks(ws);
+  for (const year of [2001, 2001, 2002]) fire('answer results', answer({ year }));
+  assert.equal(Object.keys(S.prog.years).length, 2);
+  sandbox.quiz.gameMode = 'Nexus';
+  fire('answer results', answer({ year: 2003 }));
+  fire('answer results', answer({ year: 2003 }));
+  assert.equal(S.prog.nexus, 2);
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 2612).sort(), [2612, 3600]);
+});
+
+// ---------- new items and traps ----------
+test('mulligan forgives a miss entirely; spotlight doubles category counts but not milestones', async () => {
+  const { ws, fire, S } = await connected();
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Mulligan', 'Spotlight', 'Streak Shield']) }]);
+  fire('quiz ready', {});
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 1);
+  assert.equal(S.prog.type.Opening, 2, 'spotlight');
+  assert.equal(S.prog.genre.Action, 2);
+  fire('answer results', answer({ correct: false }));
+  assert.match(S.lastSong, /Mulligan used/);
+  assert.deepEqual([S.game.eligible, S.game.eligibleCorrect, S.game.streak, S.prog.shield], [1, 1, 1, 1], 'the song never happened');
+  fire('answer results', answer({ correct: false }));
+  assert.match(S.lastSong, /Streak Shield held/);
+});
+
+test('blind trap hides the quiz video; trap link maps darkness to it', async () => {
+  const { ws, fire, S, sandbox } = await connected({ slot: { trap_link: true, death_link: false } });
+  const css = () => sandbox.document.getElementById('amq-ap-trap-css').textContent;
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Blind Trap']) }]);
+  assert.match(css(), /#qpVideosInner video[^{]*\{visibility:hidden/);
+  fire('answer results', answer());
+  fire('answer results', answer());
+  assert.doesNotMatch(css(), /visibility/);
+  ws.server([{ cmd: 'Bounced', tags: ['TrapLink'], data: { time: 1, source: 'Friend', trap_name: 'Darkness Trap' } }]);
+  assert.equal(S.prog.traps.blind, 2);
+});
+
+test('older saves gain the new trap counters', async () => {
+  const remote = { v: 1, total: 3, traps: { mute: 1, reverse: 0, tiny: 0 } };
+  const { S } = await connected({ remote });
+  assert.deepEqual(JSON.parse(JSON.stringify(S.prog.traps)), { mute: 1, reverse: 0, tiny: 0, blind: 0 });
+  assert.equal(S.prog.total, 3);
+});
+
+// ---------- ring link and death link modes ----------
+test('ring link: correct answers send a ring, received rings become milestone progress', async () => {
+  const { ws, fire, S } = await connected({ slot: { ring_link: true, ring_link_rate: 5, death_link: false } });
+  assert.deepEqual(JSON.parse(JSON.stringify(ws.take('ConnectUpdate')[0].tags)), ['RingLink']);
+  fire('answer results', answer());
+  fire('answer results', answer({ correct: false }));
+  const [ring] = ws.take('Bounce');
+  assert.deepEqual([[...ring.tags], ring.data.amount, ring.data.source], [['RingLink'], 1, S.ringSource]);
+  assert.equal(ws.take('Bounce').length, 0, 'misses send nothing');
+  const rings = (amount, source = 99) => ws.server([{ cmd: 'Bounced', tags: ['RingLink'], data: { time: 1, source, amount } }]);
+  rings(12);
+  assert.deepEqual([S.prog.total, S.prog.ringBank], [3, 2]);
+  rings(50, S.ringSource);
+  assert.equal(S.prog.total, 3, 'own echo ignored');
+  rings(-8);
+  assert.deepEqual([S.prog.total, S.prog.ringBank], [2, -1]);
+});
+
+test('death link: poor game trigger fires at quiz over, amnesty forgives the first ones', async () => {
+  const { ws, fire, S } = await connected({ slot: { death_link_trigger: 'poor_game', death_link_accuracy: 50, death_link_amnesty: 1 } });
+  const game = (hits, misses) => {
+    fire('quiz ready', {});
+    for (let i = 0; i < hits; i++) fire('answer results', answer());
+    for (let i = 0; i < misses; i++) fire('answer results', answer({ correct: false }));
+    fire('quiz over', {});
+  };
+  game(2, 8);
+  assert.equal(ws.take('Bounce').length, 0, 'miss streaks do not count with poor_game, and amnesty forgave this one');
+  assert.match(S.log.join('\n'), /Death Link amnesty: Me finished a game at 20%\. Forgiven \(0 left/);
+  game(2, 8);
+  const [death] = ws.take('Bounce');
+  assert.match(death.data.cause, /finished a game at 20%/);
+  game(1, 3);
+  assert.equal(ws.take('Bounce').length, 0, 'too short to judge');
+  game(6, 4);
+  assert.equal(ws.take('Bounce').length, 0, '60% is fine');
+});
+
+test('death link: either trigger still sends on a miss streak', async () => {
+  const { ws, fire } = await connected({ slot: { death_link_trigger: 'either' } });
+  for (let i = 0; i < 3; i++) fire('answer results', answer({ correct: false }));
+  assert.equal(ws.take('Bounce').length, 1);
+});
+
+// ---------- hints, what to play next, session summary ----------
+test('hint panel lists missing unlocks and asks the server', async () => {
+  const { ws, S, api } = await connected();
+  const missing = api.missingUnlocks();
+  assert.ok(missing.includes('Ending Pass') && missing.includes('Genre Key: Mecha') && missing.includes('Format Pass: Movie'));
+  assert.ok(!missing.includes('Opening Pass') && !missing.includes('Format Pass: TV'));
+  assert.ok(missing.includes('Progressive Rarity Lens') && missing.includes('Mixtape Fragment'));
+  api.hintItem('Ending Pass');
+  assert.deepEqual(ws.take('Say').map(m => m.text), ['!hint Ending Pass']);
+  S.data.gated = [];
+  assert.deepEqual([...api.missingUnlocks()], ['Mixtape Fragment']);
+});
+
+test('play next: closest focusable checks first, focus narrows the room to that category', async () => {
+  const NEAR = [{ id: 2001, name: 'Ending Specialist', kind: 'type', key: 'Ending', n: 3, stage: 0 },
+    { id: 2210, name: 'Genre Scholar: Action', kind: 'genre', key: 'Action', n: 3, stage: 0 },
+    { id: 2402, name: 'Medium Guess-Rate Songs', kind: 'rarity', key: 'Medium', n: 5, stage: 0 },
+    { id: 2403, name: 'Hard Guess-Rate Songs', kind: 'rarity', key: 'Hard', n: 1, stage: 0 }];
+  const { ws, fire, S, api, sandbox } = await connected({ slot: { checks: [...CHECKS, ...NEAR] } });
+  fire('answer results', answer());
+  fire('answer results', answer());
+  const names = () => [...api.nextUp(5).map(c => c.name)];
+  assert.deepEqual(names(), ['Genre Scholar: Action', 'Medium Guess-Rate Songs'], 'Ending and Hard are locked');
+  const calls = withRoom(sandbox);
+  api.applyFocus();
+  assert.deepEqual(calls[0].genre, [{ id: '1', state: 3 }]);
+  assert.match(S.log.at(-1), /^Room focused on Genre Scholar: Action\./);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Ending Pass']) }]);
+  assert.deepEqual(names().slice(0, 3), ['Genre Scholar: Action', 'Medium Guess-Rate Songs', 'Ending Specialist'],
+    'ties on songs left go to the further along');
+  const medium = api.focusWish(S.data.checks.find(c => c.id === 2402));
+  assert.deepEqual([...medium.difficulty], [25, 60]);
+  const lines = withChat(sandbox);
+  api.apCommand('next');
+  assert.match(lines.at(-1), /Closest checks: Genre Scholar: Action \(2\/3\); Medium Guess-Rate Songs \(2\/5\); Ending Specialist \(0\/3\)/);
+});
+
+test('quiz over posts a summary of the game', async () => {
+  const { fire, sandbox } = await connected();
+  const lines = withChat(sandbox);
+  fire('quiz ready', {});
+  for (let i = 0; i < 3; i++) fire('answer results', answer());
+  fire('answer results', answer({ type: 2 }));
+  fire('quiz over', {});
+  assert.match(lines.at(-1), /Game over: 3 of 4 songs counted, 3 correct \(100%\), 3 checks sent\./);
+});
+
+// ---------- offline queue and backup ----------
+test('a dropped connection keeps counting; checks and progress reach the server after reconnecting', async () => {
+  const storage = new Map();
+  const c = await connected({ storage, slot: { death_link: false } });
+  c.fire('quiz ready', {});
+  c.fire('answer results', answer());
+  sentChecks(c.ws);
+  const [{ operations: [{ value: before }] }] = c.ws.take('Set').slice(-1);
+  c.ws.close(); // not a manual disconnect
+  assert.equal(c.S.offline, true);
+  assert.match(c.S.log.join('\n'), /Still counting/);
+  for (let i = 0; i < 9; i++) c.fire('answer results', answer());
+  assert.equal(c.S.prog.total, 10);
+  assert.deepEqual([...c.S.pending].sort(), [1010, 2500, 2601]);
+  await new Promise(r => setTimeout(r, 2100)); // the client retries after 2s
+  const ws2 = handshake(c, { remote: JSON.parse(JSON.stringify(before)), start: START });
+  assert.equal(c.S.prog.total, 10, 'the newer local save wins over the server copy');
+  assert.equal(c.S.game.streak, 10, 'the game in progress carried on');
+  // the fake server reports nothing checked, so the cumulative 2000 is sent again from progress; a real one has it
+  assert.deepEqual(sentChecks(ws2).sort(), [1010, 2000, 2500, 2601]);
+  assert.deepEqual(JSON.parse(storage.get('amq_ap_pending_S1_0_1')), []);
+});
+
+test('export and import carry progress and unsent checks to another browser', async () => {
+  const a = await connected({ slot: { death_link: false } });
+  a.ws.close();
+  for (let i = 0; i < 10; i++) a.fire('answer results', answer());
+  const text = a.api.exportState();
+  clearTimeout(a.S.retryTimer);
+  const b = await connected({ storage: new Map() });
+  assert.equal(b.api.importState('nonsense'), 'That is not an export from this client.');
+  assert.equal(b.api.importState(text.replace('"seed":"S1"', '"seed":"S2"')), 'That export is for a different seed or slot.');
+  sentChecks(b.ws);
+  assert.equal(b.api.importState(text), 'Imported progress and unsent checks.');
+  assert.equal(b.S.prog.total, 10);
+  assert.deepEqual(sentChecks(b.ws).sort(), [1010, 2000, 2500, 2601]);
+});
+
+test('the panel renders the new sections, and its status view while offline', async () => {
+  const { ws, api, S, sandbox } = await connected({ slot: { gated: [...ALL_GATES, 'Anime Score'] } });
+  api.open();
+  const html = () => sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  for (const part of [/Play next/, /Hint an unlock \(\d+\)/, /data-hint="Ending Pass"/, /Backup/, /Anime score/]) assert.match(html(), part);
+  ws.close();
+  assert.match(html(), /Offline: still counting/);
+  clearTimeout(S.retryTimer);
 });

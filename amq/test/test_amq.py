@@ -3,10 +3,12 @@ import json
 from test.bases import WorldTestBase
 
 from ..items import (
-    BASE_ID, BROAD_GENRES, CLOCK, DECADES, DECADE_ITEMS, FRAGMENT, GAME_NAME, GENRE_ITEMS, ITEM_NAME_TO_ID, LENS,
-    SAMPLE_ITEMS, SONG_TYPE_ITEMS,
+    BASE_ID, BROAD_GENRES, CATEGORY_ITEMS, CLOCK, DECADES, DECADE_ITEMS, DUB, FRAGMENT, GAME_NAME, GENRE_ITEMS,
+    ITEM_NAME_TO_ID, LENS, MULLIGAN, REBROADCAST, SAMPLE_ITEMS, SCORE_LENS, SONG_TYPE_ITEMS, SPOTLIGHT,
 )
 from ..locations import EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID
+from ..options import AMQOptions
+from ..presets import OPTION_PRESETS
 
 
 class AMQTestBase(WorldTestBase):
@@ -97,6 +99,18 @@ class TestStableIds(AMQTestBase):
         self.assertEqual(LOCATION_NAME_TO_ID["Home Turf: 10 Correct from Your List"], BASE_ID + 2800)
         self.assertEqual(LOCATION_NAME_TO_ID["Winter Listener: 10 Correct"], BASE_ID + 2900)
         self.assertEqual(LOCATION_NAME_TO_ID[FOUR_SEASONS], BASE_ID + 2904)
+        self.assertEqual(ITEM_NAME_TO_ID[MULLIGAN], BASE_ID + 83)
+        self.assertEqual(ITEM_NAME_TO_ID[SPOTLIGHT], BASE_ID + 84)
+        self.assertEqual(ITEM_NAME_TO_ID["Blind Trap"], BASE_ID + 95)
+        self.assertEqual(ITEM_NAME_TO_ID[CATEGORY_ITEMS["Standard"]], BASE_ID + 100)
+        self.assertEqual(ITEM_NAME_TO_ID[SCORE_LENS], BASE_ID + 110)
+        self.assertEqual(ITEM_NAME_TO_ID[REBROADCAST], BASE_ID + 112)
+        self.assertEqual(LOCATION_NAME_TO_ID["Year Collector: 10 Different Years"], BASE_ID + 2612)
+        self.assertEqual(LOCATION_NAME_TO_ID["Standard Songs: 10 Correct"], BASE_ID + 3200)
+        self.assertEqual(LOCATION_NAME_TO_ID["Acclaimed Anime Songs x10"], BASE_ID + 3300)
+        self.assertEqual(LOCATION_NAME_TO_ID["First Correct Dub"], BASE_ID + 3400)
+        self.assertEqual(LOCATION_NAME_TO_ID["Quick Draw: 5 Correct within 5s"], BASE_ID + 3500)
+        self.assertEqual(LOCATION_NAME_TO_ID["Nexus Explorer: 10 Correct in Nexus"], BASE_ID + 3600)
         self.assertEqual(len(set(LOCATION_NAME_TO_ID.values())), len(LOCATION_NAME_TO_ID))
         self.assertEqual(len(set(ITEM_NAME_TO_ID.values())), len(ITEM_NAME_TO_ID))
 
@@ -325,3 +339,87 @@ class TestEverything(AMQTestBase):
         filler = [i for i in self.multiworld.itempool if i.classification.name in ("filler", "useful")
                   and i.name not in (LENS,)]
         self.assertEqual(filler, [])
+
+
+ALL_GATES = ["Song Types", "Decades", "Genres", "Formats", "Rarity"]
+
+
+class TestNewChecksDefaults(AMQTestBase):
+    def test_quick_draw_on_nexus_off(self) -> None:
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertLessEqual(LOCATION_GROUPS["Quick Draw"], names)
+        self.assertFalse(names & LOCATION_GROUPS["Nexus"])
+        for group in ("Song Categories", "Anime Score", "Dubs & Rebroadcasts"):
+            self.assertFalse(names & LOCATION_GROUPS[group], f"{group} is opt-in")
+        self.assertEqual(self.get_items_by_name(SCORE_LENS), [])
+
+    def test_year_collector_needs_decades(self) -> None:
+        self.collect_by_name(FRAGMENT)
+        self.assertTrue(self.can_reach_location("Year Collector: 10 Different Years"))
+        start = {i.name for i in self.multiworld.precollected_items[1]}
+        missing = [item for item in DECADE_ITEMS.values() if item not in start]
+        self.collect_all_but(missing)
+        self.assertFalse(self.can_reach_location("Year Collector: 25 Different Years"), "two decades are not enough")
+        self.collect_by_name(missing[0])
+        self.assertTrue(self.can_reach_location("Year Collector: 25 Different Years"))
+
+    def test_slot_data_links(self) -> None:
+        data = self.amq().fill_slot_data()
+        self.assertEqual((data["death_link_trigger"], data["death_link_amnesty"]), ("miss_streak", 0))
+        self.assertFalse(data["ring_link"])
+        quick = next(c for c in data["checks"] if c["kind"] == "quick")
+        self.assertIn("secs", quick)
+
+
+class TestOptionalCategories(AMQTestBase):
+    options = {"unlock_categories": ALL_GATES + ["Song Category", "Anime Score", "Dub & Rebroadcast"],
+               "nexus_checks": True, "ring_link": True, "death_link_trigger": "either"}
+
+    def test_category_passes(self) -> None:
+        start = {i.name for i in self.multiworld.precollected_items[1]}
+        self.assertIn(CATEGORY_ITEMS["Standard"], start)
+        self.assertEqual(self.get_items_by_name(CATEGORY_ITEMS["Standard"]), [])
+        self.assertEqual(len(self.get_items_by_name(CATEGORY_ITEMS["Chanting"])), 1)
+        self.assertTrue(self.can_reach_location("Standard Songs: 10 Correct"))
+        self.collect_by_name(FRAGMENT)
+        self.assertFalse(self.can_reach_location("Chanting Songs: 1 Correct"))
+        self.collect_by_name(CATEGORY_ITEMS["Chanting"])
+        self.assertTrue(self.can_reach_location("Chanting Songs: 1 Correct"))
+
+    def test_score_lenses(self) -> None:
+        lenses = self.get_items_by_name(SCORE_LENS)
+        self.assertEqual(len(lenses), 2)
+        self.collect_by_name(FRAGMENT)
+        self.assertTrue(self.can_reach_location("Well Liked Anime Songs x10"))
+        self.assertFalse(self.can_reach_location("Mixed Anime Songs x5"))
+        self.collect(lenses[0])
+        self.assertTrue(self.can_reach_location("Mixed Anime Songs x5"))
+        self.assertFalse(self.can_reach_location("Overlooked Anime Songs x3"))
+        self.collect(lenses[1])
+        self.assertTrue(self.can_reach_location("Overlooked Anime Songs x3"))
+
+    def test_dub_passes(self) -> None:
+        self.collect_by_name(FRAGMENT)
+        self.assertFalse(self.can_reach_location("First Correct Dub"))
+        self.collect_by_name(DUB)
+        self.assertTrue(self.can_reach_location("First Correct Dub"))
+        self.assertFalse(self.can_reach_location("First Correct Rebroadcast"))
+
+    def test_nexus_and_slot_data(self) -> None:
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertLessEqual(LOCATION_GROUPS["Nexus"], names)
+        data = self.amq().fill_slot_data()
+        self.assertTrue(data["ring_link"])
+        self.assertEqual(data["death_link_trigger"], "either")
+        self.assertEqual(data["score_floors"]["Well Liked"], 7)
+
+
+class TestPresets(AMQTestBase):
+    run_default_tests = False
+
+    def test_presets_are_valid(self) -> None:
+        fields = AMQOptions.type_hints
+        for preset, values in OPTION_PRESETS.items():
+            for name, value in values.items():
+                self.assertIn(name, fields, f"{preset}: unknown option {name}")
+                fields[name].from_any(value)

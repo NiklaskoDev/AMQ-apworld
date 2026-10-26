@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from BaseClasses import Location
 
 from .items import (
-    BASE_ID, DECADES, DECADE_ITEMS, DEFAULT_FREE_RARITY_TIERS, FORMATS, FORMAT_ITEMS, GAME_NAME, GENRES, GENRE_ITEMS,
-    LENS, RARITY_TIERS, SAMPLE_ITEMS, SAMPLE_POINTS, SONG_TYPES, SONG_TYPE_ITEMS,
+    BASE_ID, CATEGORY_ITEMS, DECADES, DECADE_ITEMS, DEFAULT_FREE_RARITY_TIERS, DUB, FORMATS, FORMAT_ITEMS,
+    FREE_SCORE_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, LENS, RARITY_TIERS, REBROADCAST, SAMPLE_ITEMS, SAMPLE_POINTS,
+    SCORE_LENS, SCORE_TIERS, SONG_CATEGORIES, SONG_TYPES, SONG_TYPE_ITEMS,
 )
 
 STAGES = ["Warm-Up Lobby", "Listening Booth", "Recording Studio", "Concert Hall"]
@@ -21,7 +22,8 @@ SEASONS = ["Winter", "Spring", "Summer", "Fall"]  # AMQ's vintage names, e.g. "S
 GROUP_OFFSETS = {
     "Song Types": 2000, "Decades": 2100, "Genres": 2200, "Formats": 2300, "Rarity": 2400,
     "Streaks": 2500, "Challenges": 2600, "Multiplayer": 2700, "Song Source": 2800, "Seasons": 2900,
-    "Comebacks": 3000, "Sample Points": 3100,
+    "Comebacks": 3000, "Sample Points": 3100, "Song Categories": 3200, "Anime Score": 3300, "Dubs & Rebroadcasts": 3400,
+    "Quick Draw": 3500, "Nexus": 3600,
 }
 
 
@@ -42,11 +44,15 @@ class CheckSpec:
     key: str = ""
     n: int = 0
     pct: int = 0
+    secs: int = 0
     reqs: tuple[Req, ...] = field(default=())
 
     def client_dict(self, address: int) -> dict:
-        return {"id": address, "name": self.name, "kind": self.kind, "key": self.key, "n": self.n, "pct": self.pct,
-                "stage": self.stage}
+        out = {"id": address, "name": self.name, "kind": self.kind, "key": self.key, "n": self.n, "pct": self.pct,
+               "stage": self.stage}
+        if self.secs:
+            out["secs"] = self.secs
+        return out
 
 
 def stage_fragments(required: int) -> list[int]:
@@ -64,7 +70,9 @@ def milestone_name(n: int) -> str:
 
 def build_check_specs(milestone_count: int, milestone_step: int, challenges: bool, multiplayer: bool,
                       list_checks: bool = False, free_tiers: int = DEFAULT_FREE_RARITY_TIERS,
-                      seasons: bool = False, sample_points: bool = False) -> list[CheckSpec]:
+                      seasons: bool = False, sample_points: bool = False, categories: bool = False,
+                      score: bool = False, dubs: bool = False, quick_draw: bool = False,
+                      nexus: bool = False) -> list[CheckSpec]:
     specs: list[CheckSpec] = []
 
     for i in range(milestone_count):
@@ -121,6 +129,10 @@ def build_check_specs(milestone_count: int, milestone_step: int, challenges: boo
         for n, stage in ((5, 1), (10, 3)):
             specs.append(CheckSpec(f"Strong Finish: End a Game on a {n}-Song Streak", "finish", stage, "Comebacks",
                                    n=n))
+        # one decade covers at most ten years (except "1980s & Earlier"), so logic asks for one per ten
+        for n, stage in ((10, 1), (25, 3)):
+            specs.append(CheckSpec(f"Year Collector: {n} Different Years", "years", stage, "Challenges", n=n,
+                                   reqs=(Req("Decades", tuple(DECADE_ITEMS.values()), math.ceil(n / 10)),)))
 
     if seasons:
         for season in SEASONS:
@@ -133,6 +145,39 @@ def build_check_specs(milestone_count: int, milestone_step: int, challenges: boo
             reqs = (Req("Sample Point", (SAMPLE_ITEMS[point],)),) if point in SAMPLE_ITEMS else ()
             specs.append(CheckSpec(f"{point} Sample: 10 Correct", "sample", 0 if point == "Start" else 1,
                                    "Sample Points", key=point, n=10, reqs=reqs))
+
+    if categories:
+        for cat in SONG_CATEGORIES:
+            if cat == "Standard":
+                specs.append(CheckSpec("Standard Songs: 10 Correct", "category", 0, "Song Categories", key=cat, n=10))
+                continue
+            for n, stage in ((1, 1), (3, 2)):
+                specs.append(CheckSpec(f"{cat} Songs: {n} Correct", "category", stage, "Song Categories", key=cat,
+                                       n=n, reqs=(Req("Song Category", (CATEGORY_ITEMS[cat],)),)))
+
+    if score:
+        for tier, n, stage in (("Acclaimed", 10, 0), ("Well Liked", 10, 1), ("Mixed", 5, 1), ("Mixed", 10, 2),
+                               ("Overlooked", 3, 2)):
+            lenses = SCORE_TIERS.index(tier) - FREE_SCORE_TIERS + 1
+            reqs = (Req("Anime Score", (SCORE_LENS,), lenses),) if lenses > 0 else ()
+            specs.append(CheckSpec(f"{tier} Anime Songs x{n}", "score", stage, "Anime Score", key=tier, n=n,
+                                   reqs=reqs))
+
+    if dubs:
+        for key, item in (("Dub", DUB), ("Rebroadcast", REBROADCAST)):
+            for n, stage in ((1, 1), (3, 2)):
+                name = f"First Correct {key}" if n == 1 else f"{key} Regular: {n} Correct"
+                specs.append(CheckSpec(name, "dub", stage, "Dubs & Rebroadcasts", key=key, n=n,
+                                       reqs=(Req("Dub & Rebroadcast", (item,)),)))
+
+    if quick_draw:
+        for n, secs, stage in ((5, 5, 0), (15, 5, 1), (5, 3, 2), (30, 5, 3)):
+            specs.append(CheckSpec(f"Quick Draw: {n} Correct within {secs}s", "quick", stage, "Quick Draw", n=n,
+                                   secs=secs))
+
+    if nexus:
+        for n, stage in ((10, 0), (25, 1), (50, 2)):
+            specs.append(CheckSpec(f"Nexus Explorer: {n} Correct in Nexus", "nexus", stage, "Nexus", n=n))
 
     if list_checks:  # song_source: mixed
         for n, stage in ((10, 0), (25, 1), (50, 2)):
@@ -152,13 +197,18 @@ def build_check_specs(milestone_count: int, milestone_step: int, challenges: boo
     return specs
 
 
+# every optional group switched on: the full location table, so ids never depend on a yaml
+ALL_FLAGS = {"seasons": True, "sample_points": True, "categories": True, "score": True, "dubs": True, "quick_draw": True,
+             "nexus": True}
+
+
 def _build_ids() -> dict[str, int]:
     ids: dict[str, int] = {}
     for step in MILESTONE_STEPS:
         for i in range(1, MAX_MILESTONES + 1):
             ids[milestone_name(step * i)] = BASE_ID + step * i
     per_group: dict[str, int] = {}
-    for spec in build_check_specs(0, 1, True, True, True, seasons=True, sample_points=True):
+    for spec in build_check_specs(0, 1, True, True, True, **ALL_FLAGS):
         index = per_group.get(spec.group, 0)
         assert index < 100, f"group {spec.group} overflowed its id block"
         per_group[spec.group] = index + 1
@@ -169,8 +219,7 @@ def _build_ids() -> dict[str, int]:
 LOCATION_NAME_TO_ID = _build_ids()
 
 LOCATION_GROUPS: dict[str, set[str]] = {}
-for _spec in build_check_specs(MAX_MILESTONES, max(MILESTONE_STEPS), True, True, True, seasons=True,
-                                sample_points=True):
+for _spec in build_check_specs(MAX_MILESTONES, max(MILESTONE_STEPS), True, True, True, **ALL_FLAGS):
     if _spec.group != "Milestones":
         LOCATION_GROUPS.setdefault(_spec.group, set()).add(_spec.name)
 LOCATION_GROUPS["Milestones"] = {name for name in LOCATION_NAME_TO_ID if name.startswith("Correct Answers: ")}

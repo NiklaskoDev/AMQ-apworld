@@ -8,7 +8,8 @@ from Options import (
 from .items import TRAPS
 
 GATING_CATEGORIES = ["Song Types", "Decades", "Genres", "Formats", "Rarity"]
-OPTIONAL_CATEGORIES = ["Guess Time", "Sample Point"]  # valid, but not locked unless asked for
+# valid, but not locked unless asked for
+OPTIONAL_CATEGORIES = ["Guess Time", "Sample Point", "Song Category", "Anime Score", "Dub & Rebroadcast"]
 
 
 class Goal(Choice):
@@ -65,7 +66,15 @@ class UnlockCategories(OptionSet):
     Guess Time (not in the default) caps the room's guess time: songs only count when the room's timer is at most
     the allowed time, and each Progressive Guess Time raises it (see guess_time_start / guess_time_step).
     Sample Point (not in the default) locks the room's sample point setting: Start is open, Sample Passes unlock
-    Middle, End and Random, and each adds a check for 10 correct songs at that sample point."""
+    Middle, End and Random, and each adds a check for 10 correct songs at that sample point.
+    Song Category (not in the default) locks AMQ's song categories: Standard is open, passes unlock Instrumental,
+    Chanting and Character, each with its own checks.
+    Anime Score (not in the default) locks songs by the anime's score: 7 and up is open, two Progressive Score Lenses
+    open 6-7 and then everything below, each tier with its own checks.
+    Dub & Rebroadcast (not in the default) ignores dub and rebroadcast songs until you find the Dub Pass and
+    Rebroadcast Pass, and adds checks for both.
+    The last three rely on fields the client reads from AMQ's song data; if it cannot read them, songs count anyway
+    and that category's checks cannot progress."""
     display_name = "Unlock Categories"
     valid_keys = frozenset(GATING_CATEGORIES + OPTIONAL_CATEGORIES)
     default = frozenset(GATING_CATEGORIES)
@@ -196,6 +205,17 @@ class SeasonChecks(DefaultOnToggle):
     display_name = "Season Checks"
 
 
+class QuickDrawChecks(DefaultOnToggle):
+    """Add checks for answering fast: correct answers locked in (Enter pressed) within a few seconds of the song
+    starting. Measured by the client, so it works in any room."""
+    display_name = "Quick Draw Checks"
+
+
+class NexusChecks(Toggle):
+    """Add checks for correct answers in AMQ's solo Nexus mode. Leave off if you don't play Nexus."""
+    display_name = "Nexus Checks"
+
+
 class MultiplayerChecks(Toggle):
     """Add checks for placing well in games with other players. Leave off for solo play."""
     display_name = "Multiplayer Checks"
@@ -207,8 +227,50 @@ class TrapLink(Toggle):
     display_name = "Trap Link"
 
 
+class RingLink(Toggle):
+    """Share rings with other Ring Link games. Every counted correct answer sends one ring; rings you receive
+    become cumulative milestone progress (and lost rings take it away), see ring_link_rate."""
+    display_name = "Ring Link"
+
+
+class RingLinkRate(Range):
+    """How many received rings make one point of cumulative milestone progress."""
+    display_name = "Ring Link Rate"
+    range_start = 1
+    range_end = 50
+    default = 10
+
+
+class DeathLinkTrigger(Choice):
+    """What sends a death with Death Link on.
+    Miss Streak: missing death_link_misses eligible songs in a row.
+    Poor Game: finishing a game of 10+ eligible songs below death_link_accuracy percent.
+    Either: both."""
+    display_name = "Death Link Trigger"
+    option_miss_streak = 0
+    option_poor_game = 1
+    option_either = 2
+    default = 0
+
+
+class DeathLinkAccuracy(Range):
+    """With a Poor Game trigger, finishing a game below this accuracy (%) sends a death."""
+    display_name = "Death Link Game Accuracy"
+    range_start = 10
+    range_end = 90
+    default = 40
+
+
+class DeathLinkAmnesty(Range):
+    """How many deaths you would send are forgiven before one is really sent. 0 sends every one."""
+    display_name = "Death Link Amnesty"
+    range_start = 0
+    range_end = 10
+    default = 0
+
+
 class DeathLinkMisses(Range):
-    """With Death Link on, missing this many eligible songs in a row sends a death.
+    """With a Miss Streak trigger, missing this many eligible songs in a row sends a death.
     A received death wipes your streak and mutes the next song."""
     display_name = "Death Link Miss Streak"
     range_start = 1
@@ -263,13 +325,20 @@ class AMQOptions(PerGameCommonOptions):
     milestone_step: MilestoneStep
     challenge_checks: ChallengeChecks
     season_checks: SeasonChecks
+    quick_draw_checks: QuickDrawChecks
+    nexus_checks: NexusChecks
     multiplayer_checks: MultiplayerChecks
     trap_percentage: TrapPercentage
     trap_weights: TrapWeights
     trap_duration: TrapDuration
     trap_link: TrapLink
+    ring_link: RingLink
+    ring_link_rate: RingLinkRate
     death_link: DeathLink
+    death_link_trigger: DeathLinkTrigger
     death_link_misses: DeathLinkMisses
+    death_link_accuracy: DeathLinkAccuracy
+    death_link_amnesty: DeathLinkAmnesty
     start_inventory_from_pool: StartInventoryPool
 
 
@@ -278,7 +347,9 @@ OPTION_GROUPS = [
     OptionGroup("Unlocks", [UnlockCategories, SongSource, StartingSongType, StartingDecades, StartingGenres]),
     OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers, GuessTimeStart, GuessTimeStep,
                                GuessTimeItems]),
-    OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, SeasonChecks, MultiplayerChecks]),
-    OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration, TrapLink]),
-    OptionGroup("Death Link", [DeathLink, DeathLinkMisses]),
+    OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, SeasonChecks, QuickDrawChecks, NexusChecks,
+                           MultiplayerChecks]),
+    OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration]),
+    OptionGroup("Links", [TrapLink, RingLink, RingLinkRate]),
+    OptionGroup("Death Link", [DeathLink, DeathLinkTrigger, DeathLinkMisses, DeathLinkAccuracy, DeathLinkAmnesty]),
 ]

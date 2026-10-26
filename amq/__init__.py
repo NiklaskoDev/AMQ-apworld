@@ -9,24 +9,25 @@ from Options import OptionSet
 from worlds.AutoWorld import WebWorld, World
 
 from .items import (
-    AMQItem, BROAD_GENRES, CLOCK, DECADES, DECADE_ITEMS, FILLER_WEIGHTS, FORMAT_ITEMS, FRAGMENT, GAME_NAME, GENRES,
-    GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, RARITY_TIERS, SAMPLE_ITEMS, SONG_TYPE_ITEMS,
-    SONG_TYPES, TRAPS,
+    AMQItem, BROAD_GENRES, CATEGORY_ITEMS, CLOCK, DECADES, DECADE_ITEMS, DUB, FILLER_WEIGHTS, FORMAT_ITEMS, FRAGMENT,
+    FREE_SCORE_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, RARITY_TIERS,
+    REBROADCAST, SAMPLE_ITEMS, SCORE_FLOORS, SCORE_LENS, SCORE_TIERS, SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
 )
 from .locations import (
     AMQLocation, CheckSpec, EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID, MAX_MILESTONES, Req, STAGES,
     build_check_specs, stage_fragments,
 )
 from .options import AMQOptions, OPTION_GROUPS, SongSource
+from .presets import OPTION_PRESETS
 
-CLIENT_VERSION = 5
+CLIENT_VERSION = 6
 # goals that need every check of these kinds on top of the fragments
 GOAL_KINDS = {"scholar": {"genre"}, "specialist": {"type"}}
 # options that shape the locations, rules or pool; sent in slot data so Universal Tracker can rebuild the world
 TRACKER_OPTIONS = [
     "goal", "unlock_categories", "fragments_required", "fragment_extra_percent", "milestone_count", "milestone_step",
     "challenge_checks", "multiplayer_checks", "season_checks", "song_source", "free_difficulty_tiers",
-    "guess_time_items", "starting_decades", "starting_genres",
+    "guess_time_items", "starting_decades", "starting_genres", "quick_draw_checks", "nexus_checks",
 ]
 
 logger = logging.getLogger("Anime Music Quiz")
@@ -35,6 +36,7 @@ logger = logging.getLogger("Anime Music Quiz")
 class AMQWebWorld(WebWorld):
     theme = "partyTime"
     option_groups = OPTION_GROUPS
+    options_presets = OPTION_PRESETS
     tutorials = [Tutorial(
         "Multiworld Setup Guide",
         "How to play Anime Music Quiz with Archipelago using the companion userscript.",
@@ -92,7 +94,9 @@ class AMQWorld(World):
             return build_check_specs(milestones, o.milestone_step.value, bool(o.challenge_checks),
                                      bool(o.multiplayer_checks), o.song_source.value == SongSource.option_mixed,
                                      o.free_difficulty_tiers.value, bool(o.season_checks),
-                                     "Sample Point" in self.gated)
+                                     "Sample Point" in self.gated, "Song Category" in self.gated,
+                                     "Anime Score" in self.gated, "Dub & Rebroadcast" in self.gated,
+                                     bool(o.quick_draw_checks), bool(o.nexus_checks))
 
         milestones = o.milestone_count.value
         self.specs = specs_for(milestones)
@@ -157,6 +161,12 @@ class AMQWorld(World):
             names += [CLOCK] * self.options.guess_time_items.value
         if "Sample Point" in self.gated:
             names += SAMPLE_ITEMS.values()
+        if "Song Category" in self.gated:
+            names += [n for c, n in CATEGORY_ITEMS.items() if c != "Standard"]
+        if "Anime Score" in self.gated:
+            names += [SCORE_LENS] * (len(SCORE_TIERS) - FREE_SCORE_TIERS)
+        if "Dub & Rebroadcast" in self.gated:
+            names += [DUB, REBROADCAST]
         return names
 
     def create_item(self, name: str) -> Item:
@@ -214,6 +224,8 @@ class AMQWorld(World):
             self.multiworld.push_precollected(self.create_item(name))
         if "Formats" in self.gated:
             self.multiworld.push_precollected(self.create_item(FORMAT_ITEMS["TV"]))
+        if "Song Category" in self.gated:
+            self.multiworld.push_precollected(self.create_item(CATEGORY_ITEMS["Standard"]))
 
         pool = self._unlock_items() + [FRAGMENT] * self.fragment_total
         filler = len(self.specs) - len(pool)
@@ -245,10 +257,18 @@ class AMQWorld(World):
                                   "Hard": o.hard_floor.value, "Brutal": 0},
             "free_difficulty_tiers": o.free_difficulty_tiers.value,
             "guess_time": {"start": o.guess_time_start.value, "step": o.guess_time_step.value},
+            "guess_time_items": o.guess_time_items.value,
+            "score_floors": SCORE_FLOORS,
+            "free_score_tiers": FREE_SCORE_TIERS,
             "trap_duration": o.trap_duration.value,
             "death_link": bool(o.death_link),
+            "death_link_trigger": o.death_link_trigger.current_key,
             "death_link_misses": o.death_link_misses.value,
+            "death_link_accuracy": o.death_link_accuracy.value,
+            "death_link_amnesty": o.death_link_amnesty.value,
             "trap_link": bool(o.trap_link),
+            "ring_link": bool(o.ring_link),
+            "ring_link_rate": o.ring_link_rate.value,
             "tracker": {name: (sorted(getattr(o, name).value) if isinstance(getattr(o, name), OptionSet)
                                else getattr(o, name).value) for name in TRACKER_OPTIONS},
             "checks": [s.client_dict(LOCATION_NAME_TO_ID[s.name]) for s in self.specs],
