@@ -8,6 +8,7 @@ from BaseClasses import CollectionState, Item, ItemClassification, Region, Tutor
 from Options import OptionSet
 from worlds.AutoWorld import WebWorld, World
 
+from .descriptions import ITEM_DESCRIPTIONS, LOCATION_DESCRIPTIONS
 from .items import (
     AMQItem, BROAD_GENRES, CATEGORY_ITEMS, CLOCK, DECADES, DECADE_ITEMS, DUB, FILLER_WEIGHTS, FORMAT_ITEMS, FRAGMENT,
     FREE_SCORE_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, RARITY_TIERS,
@@ -37,6 +38,8 @@ class AMQWebWorld(WebWorld):
     theme = "partyTime"
     option_groups = OPTION_GROUPS
     options_presets = OPTION_PRESETS
+    item_descriptions = ITEM_DESCRIPTIONS
+    location_descriptions = LOCATION_DESCRIPTIONS
     tutorials = [Tutorial(
         "Multiworld Setup Guide",
         "How to play Anime Music Quiz with Archipelago using the companion userscript.",

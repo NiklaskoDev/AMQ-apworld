@@ -423,3 +423,20 @@ class TestPresets(AMQTestBase):
             for name, value in values.items():
                 self.assertIn(name, fields, f"{preset}: unknown option {name}")
                 fields[name].from_any(value)
+
+
+class TestDescriptions(AMQTestBase):
+    run_default_tests = False
+
+    def test_every_item_and_location_described(self) -> None:
+        web = self.amq().web
+        self.assertLessEqual(set(ITEM_NAME_TO_ID), set(web.item_descriptions))
+        self.assertLessEqual(set(LOCATION_NAME_TO_ID), set(web.location_descriptions))
+        self.assertLessEqual(set(LOCATION_GROUPS), set(web.location_descriptions))
+        world = self.amq()
+        # what Archipelago's webhost test requires: every key is a name or group name
+        self.assertLessEqual(set(web.item_descriptions), set(ITEM_NAME_TO_ID) | set(world.item_name_groups))
+        self.assertLessEqual(set(web.location_descriptions), set(LOCATION_NAME_TO_ID) | set(LOCATION_GROUPS))
+        self.assertEqual(web.location_descriptions["Decade Dive: 1980s & Earlier x10"],
+                         "Answer 10 songs from the 1980s or earlier correctly.")
+        self.assertEqual(web.location_descriptions["Format Hunter: OVA"], "Answer 1 song from an OVA correctly.")

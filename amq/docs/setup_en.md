@@ -4,11 +4,14 @@
 
 * An account on [animemusicquiz.com](https://animemusicquiz.com)
 * A userscript manager such as Tampermonkey or Violentmonkey
-* `amq.apworld` installed in your Archipelago `custom_worlds` folder (needed by whoever generates the seed)
+* `amq.apworld` from the [latest release](https://github.com/niklaskodev/amq-apworld/releases/latest), installed in
+  your Archipelago `custom_worlds` folder (needed by whoever generates the seed)
 
 ## Install the client
 
-1. Install `client/amq_archipelago.user.js` from this project's repository in your userscript manager.
+1. With your userscript manager installed, open
+   [`amq_archipelago.user.js` from the latest release](https://github.com/niklaskodev/amq-apworld/releases/latest/download/amq_archipelago.user.js)
+   and confirm the install. Your userscript manager checks that address for updates from then on.
 2. Open animemusicquiz.com and log in. An **AP** button appears in the bottom-right corner.
 3. Click it and enter the server address (for example `archipelago.gg:38281`), your slot name and the password,
    then press Connect. Without `ws://` or `wss://` the client tries a secure connection first and falls back to an

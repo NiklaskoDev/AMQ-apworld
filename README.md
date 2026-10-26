@@ -23,12 +23,15 @@ and applied by the userscript. The userscript can apply your unlocks to the room
 room on the open check closest to done, shows what each open check holds, hints missing unlocks in one click, keeps
 counting while offline, and bridges multiworld chat into AMQ's chat (`/ap !hint ...` works from there).
 
+Download `amq.apworld` and the userscript from the [latest release](https://github.com/niklaskodev/amq-apworld/releases/latest).
+
 Player guide: [`amq/docs/en_Anime Music Quiz.md`](amq/docs/en_Anime%20Music%20Quiz.md) ·
-setup: [`amq/docs/setup_en.md`](amq/docs/setup_en.md)
+setup: [`amq/docs/setup_en.md`](amq/docs/setup_en.md) · [changelog](CHANGELOG.md)
 
 ## Layout
 
 * `amq/`: the world (`python build.py` packs it into `amq.apworld` for `custom_worlds/`)
+* `release.py`: version and release-notes checks used by CI
 * `client/amq_archipelago.user.js`: the userscript client
 * `client/test/`: client tests (an offline suite, plus an end-to-end script for a real server)
 
@@ -55,6 +58,13 @@ AP_SERVER=ws://127.0.0.1:38281 AP_SLOT=Quizzer AP_CONSOLE=/path/to/fifo node cli
 ```
 
 CI runs the world tests against Archipelago 0.6.7 and `main`, builds the apworld and runs the client suite.
+
+## Releasing
+
+Bump `world_version` in `amq/archipelago.json` and `@version` in the userscript, add an entry at the top of
+`CHANGELOG.md`, then push a matching tag (`git tag v0.8.1 && git push origin v0.8.1`). The release workflow runs the
+tests, checks that the three versions match the tag, and publishes a GitHub release with `amq.apworld`, the
+userscript and the changelog entry as notes. Installed userscripts update from the latest release.
 
 ## About the AMQ integration
 

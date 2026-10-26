@@ -1,8 +1,12 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.8.0
+// @version      0.8.1
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
+// @homepageURL  https://github.com/niklaskodev/amq-apworld
+// @supportURL   https://github.com/niklaskodev/amq-apworld/issues
+// @updateURL    https://github.com/niklaskodev/amq-apworld/releases/latest/download/amq_archipelago.user.js
+// @downloadURL  https://github.com/niklaskodev/amq-apworld/releases/latest/download/amq_archipelago.user.js
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
 // @grant        none

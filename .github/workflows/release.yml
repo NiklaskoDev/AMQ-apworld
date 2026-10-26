@@ -1,0 +1,32 @@
+name: release
+
+# Push a tag like v0.8.1 to publish amq.apworld and the userscript as a GitHub release. The userscript's @updateURL
+# points at the latest release, so userscript managers pick the new version up by themselves.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  tests:
+    uses: ./.github/workflows/test.yml
+
+  release:
+    needs: tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check versions match the tag
+        run: python release.py check "$GITHUB_REF_NAME"
+      - run: python build.py
+      - run: python release.py notes > notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" amq.apworld client/amq_archipelago.user.js
+          --title "$GITHUB_REF_NAME" --notes-file notes.md

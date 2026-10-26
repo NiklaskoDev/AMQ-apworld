@@ -2,7 +2,9 @@ name: tests
 
 on:
   push:
+    branches: ["**"]  # tags run this through release.yml
   pull_request:
+  workflow_call:
 
 jobs:
   world:
@@ -25,6 +27,8 @@ jobs:
       - name: World tests
         working-directory: ap
         run: python -m pytest worlds/amq -q
+      - name: Versions agree
+        run: python release.py check
       - name: Build apworld
         run: python build.py && python -c "import zipfile, json; z = zipfile.ZipFile('amq.apworld'); m = json.loads(z.read('amq/archipelago.json')); assert m['compatible_version'] == 7, m; print(m)"
 
