@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.3.0
+// @version      0.4.0
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @match        https://animemusicquiz.com/*
 // @match        https://*.animemusicquiz.com/*
@@ -23,8 +23,11 @@
     'Sci-Fi', 'Slice of Life', 'Sports', 'Supernatural', 'Mahou Shoujo', 'Psychological', 'Thriller'];
   const FORMATS = ['TV', 'Movie', 'OVA', 'ONA', 'Special'];
   const TIERS = ['Easy', 'Medium', 'Hard', 'Brutal'];
-  const FREE_TIERS = 2; // Easy + Medium are always unlocked
-  const TIER_FLOOR = { Easy: 60, Medium: 25, Hard: 10, Brutal: 0 }; // guess rate %, matches the lobby slider
+  // guess-rate floors (%) matching the lobby slider; seeds set their own via slot data, these are the defaults
+  const DEFAULT_FLOORS = { Easy: 60, Medium: 25, Hard: 10, Brutal: 0 };
+  const DEFAULT_FREE_TIERS = 2;
+  const tierFloor = t => ((S.data && S.data.difficulty_floors) || DEFAULT_FLOORS)[t];
+  const freeTiers = () => (S.data && S.data.free_difficulty_tiers) || DEFAULT_FREE_TIERS;
   const TIMED_TRAPS = { 'Mute Trap': 'mute', 'Reverse Typing Trap': 'reverse', 'Tiny Text Trap': 'tiny' };
 
   // ---------- storage (never throws) ----------
@@ -70,7 +73,7 @@
   }
   function tierOf(rate) { // animeDifficulty is a number, or the string "Unrated"
     if (typeof rate !== 'number' || !isFinite(rate)) return null;
-    return TIERS.find(t => rate >= TIER_FLOOR[t]);
+    return TIERS.find(t => rate >= tierFloor(t));
   }
   function formatOf(type) {
     if (typeof type !== 'string') return null;
@@ -142,7 +145,7 @@
     }
     S.unlocks = u; S.fragments = fragments;
   }
-  const maxTier = () => (gated('Rarity') ? Math.min(TIERS.length - 1, FREE_TIERS - 1 + S.unlocks.lens) : TIERS.length - 1);
+  const maxTier = () => (gated('Rarity') ? Math.min(TIERS.length - 1, freeTiers() - 1 + S.unlocks.lens) : TIERS.length - 1);
   const genreCounts = g => !gated('Genres') || S.unlocks.genres.has(g);
   /** Returns null when the song counts, otherwise a short reason. */
   const songSource = () => (S.data && S.data.song_source) || 'any';
@@ -471,7 +474,7 @@
       ['Song types', list('Song Types', U.types, Object.values(TYPES))],
       ['Vintage', vintageRanges()],
       ['Anime type', list('Formats', U.formats, FORMATS)],
-      ['Difficulty', `${TIER_FLOOR[TIERS[maxTier()]]}–100%`],
+      ['Difficulty', `${tierFloor(TIERS[maxTier()])}–100%`],
       ['Genres (optional)', list('Genres', U.genres, GENRES)],
       ['Song selection', { any: 'any', own_list: 'watched only (your list)', mixed: 'mix of watched and random' }[songSource()] || 'any'],
     ];

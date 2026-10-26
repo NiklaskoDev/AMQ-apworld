@@ -56,8 +56,7 @@ class UnlockCategories(OptionSet):
     """
     Which parts of the quiz are locked behind items. Songs outside your unlocks do not count toward checks.
     These mirror the filters in the lobby settings: song types, vintage, genres, anime type and song difficulty.
-    Rarity: Easy (60-100% guess rate) and Medium (25-60%) are free, two Progressive Rarity Lenses add
-    Hard (10-25%) and Brutal (0-10%)."""
+    Rarity uses the difficulty tiers below: the free tiers are open, Progressive Rarity Lenses unlock the rest."""
     display_name = "Unlock Categories"
     valid_keys = frozenset(GATING_CATEGORIES)
     default = frozenset(GATING_CATEGORIES)
@@ -74,6 +73,42 @@ class SongSource(Choice):
     option_own_list = 1
     option_mixed = 2
     default = 0
+
+
+class EasyFloor(Range):
+    """Lowest guess rate (%) that counts as Easy. Easy is this value up to 100%."""
+    display_name = "Easy Difficulty Floor"
+    range_start = 15
+    range_end = 95
+    default = 60
+
+
+class MediumFloor(Range):
+    """Lowest guess rate (%) that counts as Medium. Medium runs up to the Easy floor.
+    Lowered automatically if it is not at least 5 below the Easy floor."""
+    display_name = "Medium Difficulty Floor"
+    range_start = 10
+    range_end = 90
+    default = 25
+
+
+class HardFloor(Range):
+    """Lowest guess rate (%) that counts as Hard. Hard runs up to the Medium floor; everything below is Brutal.
+    Lowered automatically if it is not at least 5 below the Medium floor."""
+    display_name = "Hard Difficulty Floor"
+    range_start = 5
+    range_end = 85
+    default = 10
+
+
+class FreeDifficultyTiers(Range):
+    """How many difficulty tiers are unlocked from the start, easiest first (only matters if Rarity is locked).
+    One Progressive Rarity Lens is added per remaining tier: 1 = start with Easy only (3 lenses),
+    4 = everything open (no lenses)."""
+    display_name = "Free Difficulty Tiers"
+    range_start = 1
+    range_end = 4
+    default = 2
 
 
 class StartingSongType(Choice):
@@ -173,6 +208,10 @@ class AMQOptions(PerGameCommonOptions):
     starting_decades: StartingDecades
     starting_genres: StartingGenres
     song_source: SongSource
+    easy_floor: EasyFloor
+    medium_floor: MediumFloor
+    hard_floor: HardFloor
+    free_difficulty_tiers: FreeDifficultyTiers
     milestone_count: MilestoneCount
     milestone_step: MilestoneStep
     challenge_checks: ChallengeChecks
@@ -188,6 +227,7 @@ class AMQOptions(PerGameCommonOptions):
 OPTION_GROUPS = [
     OptionGroup("Goal", [Goal, FragmentsRequired, FragmentExtraPercent, FinaleSongs, FinaleAccuracy]),
     OptionGroup("Unlocks", [UnlockCategories, SongSource, StartingSongType, StartingDecades, StartingGenres]),
+    OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers]),
     OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, MultiplayerChecks]),
     OptionGroup("Traps", [TrapPercentage, TrapWeights, TrapDuration]),
     OptionGroup("Death Link", [DeathLink, DeathLinkMisses]),

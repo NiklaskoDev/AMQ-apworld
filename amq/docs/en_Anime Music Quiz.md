@@ -18,8 +18,9 @@ Items are unlocks that live in the multiworld:
 * **Decade passes**: 1980s & Earlier, 1990s, 2000s, 2010s, 2020s
 * **Genre keys**: 17 broad genres (Action, Comedy, Mecha, Slice of Life, ...)
 * **Format passes**: Movie, OVA, ONA, Special (TV is always unlocked)
-* **Progressive Rarity Lens** (x2): difficulty follows the lobby "song difficulty" slider (community guess rate).
-  Easy (60–100%) and Medium (25–60%) are free; the lenses add Hard (10–25%), then Brutal (0–10%).
+* **Progressive Rarity Lens**: difficulty follows the lobby "song difficulty" slider (community guess rate).
+  By default Easy (60–100%) and Medium (25–60%) are free and two lenses add Hard (10–25%), then Brutal (0–10%).
+  Both the boundaries and the number of free tiers are options (see below).
 * **Mixtape Fragments**: open the later stages and, once you have enough, the Grand Finale
 
 You start with one song type (Opening by default), two neighbouring decades, four genres (at least one of them broad)
@@ -34,6 +35,19 @@ and TV. Categories you leave out of `unlock_categories` are simply always open.
 | `any` (default) | Every song counts, wherever it comes from. | anything |
 | `own_list` | Strict: only songs from your own list count; others are ignored and don't break streaks. | watched only |
 | `mixed` | Every song counts, plus extra checks: Home Turf (correct on-list songs), Uncharted (correct off-list songs) and Best of Both (both in one game). | a mix of watched and random |
+
+## Difficulty tiers
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `easy_floor` | 60 | Easy is this guess rate up to 100% |
+| `medium_floor` | 25 | Medium runs from here up to the Easy floor |
+| `hard_floor` | 10 | Hard runs from here up to the Medium floor; everything below is Brutal |
+| `free_difficulty_tiers` | 2 | Tiers open from the start, easiest first. One lens per remaining tier: `1` means three lenses, `4` means none. |
+
+Each tier stays at least 5 points wide: if the floors are out of order or too close, the lower ones are pushed down
+(and a warning is logged), so no tier's checks become impossible. The client's lobby guide shows the difficulty
+range to set for your current unlocks.
 
 ## Stages
 

@@ -20,11 +20,10 @@ GENRES = [
 # Broad genres; one of these is always among the starting genres so the first lobby has enough songs.
 BROAD_GENRES = ["Action", "Comedy", "Drama", "Fantasy", "Romance", "Slice of Life"]
 FORMATS = ["TV", "Movie", "OVA", "ONA", "Special"]
-# By community guess rate, matching the lobby "song difficulty" slider:
-# Easy 60-100%, Medium 25-60%, Hard 10-25%, Brutal 0-10%. Easy and Medium are always unlocked.
+# By community guess rate, matching the lobby "song difficulty" slider. Boundaries and the number of tiers unlocked
+# from the start are options; by default Easy 60-100%, Medium 25-60%, Hard 10-25%, Brutal 0-10%, Easy+Medium free.
 RARITY_TIERS = ["Easy", "Medium", "Hard", "Brutal"]
-FREE_RARITY_TIERS = 2
-LENS_COUNT = len(RARITY_TIERS) - FREE_RARITY_TIERS
+DEFAULT_FREE_RARITY_TIERS = 2
 
 FRAGMENT = "Mixtape Fragment"
 LENS = "Progressive Rarity Lens"

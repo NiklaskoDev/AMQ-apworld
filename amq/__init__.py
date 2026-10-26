@@ -9,7 +9,7 @@ from worlds.AutoWorld import WebWorld, World
 
 from .items import (
     AMQItem, BROAD_GENRES, DECADES, DECADE_ITEMS, FILLER_WEIGHTS, FORMAT_ITEMS, FRAGMENT, GAME_NAME, GENRES,
-    GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, LENS_COUNT, SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
+    GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, RARITY_TIERS, SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
 )
 from .locations import (
     AMQLocation, CheckSpec, EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID, MAX_MILESTONES, Req, STAGES,
@@ -60,6 +60,7 @@ class AMQWorld(World):
     def generate_early(self) -> None:
         o = self.options
         self.gated = set(o.unlock_categories.value)
+        self._fix_difficulty_floors()
         self.starting = self._pick_starting()
 
         required = o.fragments_required.value
@@ -68,7 +69,8 @@ class AMQWorld(World):
 
         def specs_for(milestones: int) -> list[CheckSpec]:
             return build_check_specs(milestones, o.milestone_step.value, bool(o.challenge_checks),
-                                     bool(o.multiplayer_checks), o.song_source.value == SongSource.option_mixed)
+                                     bool(o.multiplayer_checks), o.song_source.value == SongSource.option_mixed,
+                                     o.free_difficulty_tiers.value)
 
         milestones = o.milestone_count.value
         self.specs = specs_for(milestones)
@@ -86,6 +88,17 @@ class AMQWorld(World):
             logger.warning(f"{self.player_name}: only room for {max(0, spare)} extra fragments.")
             extra = max(0, spare)
         self.fragment_total = required + extra
+
+    def _fix_difficulty_floors(self) -> None:
+        """Keep every tier at least 5 percentage points wide so no tier's checks become impossible."""
+        o = self.options
+        easy = o.easy_floor.value
+        medium = min(o.medium_floor.value, easy - 5)
+        hard = min(o.hard_floor.value, medium - 5)
+        if (medium, hard) != (o.medium_floor.value, o.hard_floor.value):
+            logger.warning(f"{self.player_name}: difficulty floors must be at least 5 apart and descending; "
+                           f"using Easy {easy}, Medium {medium}, Hard {hard}.")
+            o.medium_floor.value, o.hard_floor.value = medium, hard
 
     def _pick_starting(self) -> list[str]:
         o = self.options
@@ -117,7 +130,7 @@ class AMQWorld(World):
             names += [n for f, n in FORMAT_ITEMS.items() if f != "TV"]
         names = [n for n in names if n not in self.starting]
         if "Rarity" in self.gated:
-            names += [LENS] * LENS_COUNT
+            names += [LENS] * (len(RARITY_TIERS) - self.options.free_difficulty_tiers.value)
         return names
 
     def create_item(self, name: str) -> Item:
@@ -195,6 +208,9 @@ class AMQWorld(World):
             "finale_accuracy": o.finale_accuracy.value,
             "gated": sorted(self.gated),
             "song_source": o.song_source.current_key,
+            "difficulty_floors": {"Easy": o.easy_floor.value, "Medium": o.medium_floor.value,
+                                  "Hard": o.hard_floor.value, "Brutal": 0},
+            "free_difficulty_tiers": o.free_difficulty_tiers.value,
             "trap_duration": o.trap_duration.value,
             "death_link": bool(o.death_link),
             "death_link_misses": o.death_link_misses.value,

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from BaseClasses import Location
 
 from .items import (
-    BASE_ID, DECADES, DECADE_ITEMS, FORMATS, FORMAT_ITEMS, FREE_RARITY_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, LENS,
+    BASE_ID, DECADES, DECADE_ITEMS, DEFAULT_FREE_RARITY_TIERS, FORMATS, FORMAT_ITEMS, GAME_NAME, GENRES, GENRE_ITEMS, LENS,
     RARITY_TIERS, SONG_TYPES, SONG_TYPE_ITEMS,
 )
 
@@ -61,7 +61,7 @@ def milestone_name(n: int) -> str:
 
 
 def build_check_specs(milestone_count: int, milestone_step: int, challenges: bool, multiplayer: bool,
-                      list_checks: bool = False) -> list[CheckSpec]:
+                      list_checks: bool = False, free_tiers: int = DEFAULT_FREE_RARITY_TIERS) -> list[CheckSpec]:
     specs: list[CheckSpec] = []
 
     for i in range(milestone_count):
@@ -90,7 +90,7 @@ def build_check_specs(milestone_count: int, milestone_step: int, challenges: boo
 
     for tier, n, stage in (("Easy", 10, 0), ("Medium", 10, 1), ("Hard", 1, 1), ("Hard", 5, 2),
                            ("Brutal", 1, 2), ("Brutal", 3, 3)):
-        lenses = RARITY_TIERS.index(tier) - FREE_RARITY_TIERS + 1
+        lenses = RARITY_TIERS.index(tier) - free_tiers + 1
         reqs = (Req("Rarity", (LENS,), lenses),) if lenses > 0 else ()
         specs.append(CheckSpec(f"{tier} Guess-Rate Songs x{n}", "rarity", stage, "Rarity", key=tier, n=n, reqs=reqs))
 

@@ -266,3 +266,27 @@ test('song_source mixed: everything counts and list checks track both sides', as
   assert.equal(S.prog.total, 4);
   assert.match(S.lastSong, /off list → counted/);
 });
+
+test('custom difficulty floors and free tiers come from slot data', async () => {
+  const slot = { difficulty_floors: { Easy: 80, Medium: 50, Hard: 20, Brutal: 0 }, free_difficulty_tiers: 1 };
+  const { ws, fire, S, api } = await connected({ slot });
+  fire('answer results', answer({ difficulty: 85 }));
+  assert.match(S.lastSong, /Easy → counted/);
+  fire('answer results', answer({ difficulty: 70 }));
+  assert.match(S.lastSong, /ignored \(Medium songs locked\)/, '70% is Medium with these floors and only Easy is free');
+  let guide = Object.fromEntries(JSON.parse(JSON.stringify(api.lobbyGuide())));
+  assert.equal(guide.Difficulty, '80–100%');
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Progressive Rarity Lens']) }]);
+  fire('answer results', answer({ difficulty: 70 }));
+  assert.match(S.lastSong, /Medium → counted/);
+  guide = Object.fromEntries(JSON.parse(JSON.stringify(api.lobbyGuide())));
+  assert.equal(guide.Difficulty, '50–100%');
+});
+
+test('seeds without difficulty settings keep the old defaults', async () => {
+  const { fire, S } = await connected();
+  fire('answer results', answer({ difficulty: 30 }));
+  assert.match(S.lastSong, /Medium → counted/);
+  fire('answer results', answer({ difficulty: 20 }));
+  assert.match(S.lastSong, /Hard songs locked/);
+});

@@ -127,6 +127,43 @@ class TestSongSourceMixed(AMQTestBase):
         self.assertEqual(self.amq().fill_slot_data()["song_source"], "mixed")
 
 
+class TestOneFreeTier(AMQTestBase):
+    options = {"free_difficulty_tiers": 1, "easy_floor": 70, "medium_floor": 40, "hard_floor": 15}
+
+    def test_three_lenses(self) -> None:
+        self.collect_by_name(FRAGMENT)
+        self.assertTrue(self.can_reach_location("Easy Guess-Rate Songs x10"))
+        self.assertFalse(self.can_reach_location("Medium Guess-Rate Songs x10"))
+        lenses = self.get_items_by_name(LENS)
+        self.assertEqual(len(lenses), 3)
+        self.collect(lenses[0])
+        self.assertTrue(self.can_reach_location("Medium Guess-Rate Songs x10"))
+        self.assertFalse(self.can_reach_location("Hard Guess-Rate Songs x1"))
+
+    def test_slot_data(self) -> None:
+        data = self.amq().fill_slot_data()
+        self.assertEqual(data["difficulty_floors"], {"Easy": 70, "Medium": 40, "Hard": 15, "Brutal": 0})
+        self.assertEqual(data["free_difficulty_tiers"], 1)
+
+
+class TestAllTiersFree(AMQTestBase):
+    options = {"free_difficulty_tiers": 4}
+
+    def test_no_lenses(self) -> None:
+        self.assertEqual(self.get_items_by_name(LENS), [])
+        self.collect_by_name(FRAGMENT)
+        self.assertTrue(self.can_reach_location("Brutal Guess-Rate Songs x3"))
+
+
+class TestFloorsCorrected(AMQTestBase):
+    """Out-of-order floors are pushed down so each tier stays at least 5 points wide."""
+    options = {"easy_floor": 30, "medium_floor": 40, "hard_floor": 50}
+
+    def test_floors(self) -> None:
+        floors = self.amq().fill_slot_data()["difficulty_floors"]
+        self.assertEqual(floors, {"Easy": 30, "Medium": 25, "Hard": 20, "Brutal": 0})
+
+
 class TestMinimal(AMQTestBase):
     options = {
         "unlock_categories": [],
