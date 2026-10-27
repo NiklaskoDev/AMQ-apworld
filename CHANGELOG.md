@@ -4,6 +4,25 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
+## [0.9.0] - 2026-10-27
+
+Client version 6 (unchanged; the userscript only gets a new version number). Seeds with `song_source: own_list`
+generate differently.
+
+### Added
+- `own_list_safety` (on by default, only with `song_source: own_list`): checks a small anime list may not be able to
+  reach (most genres, OVA, ONA and Special, the 1980s and 1990s, Brutal songs, Insert Songs, song categories,
+  Overlooked anime, dubs and rebroadcasts, Nexus and the biggest variety challenges) are excluded, so they only hold
+  filler or traps.
+- A warning when `own_list` is combined with the `scholar` or `specialist` goal.
+- The player guide explains what to do about a check your list can't reach: `exclude_locations` with group names,
+  or `/send_location` from the server console.
+
+### Fixed
+- Excluded checks could fail generation when there were few traps, because most boosts are useful items and
+  excluded checks only take filler. Hype Cheers now make up the difference, and milestones grow so the unlocks and
+  fragments still fit outside the excluded checks.
+
 ## [0.8.1] - 2026-10-26
 
 Client version 6 (unchanged). No changes to generation: seeds come out the same as with 0.8.0.

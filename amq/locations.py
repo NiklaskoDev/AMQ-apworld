@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from BaseClasses import Location
 
 from .items import (
-    BASE_ID, CATEGORY_ITEMS, DECADES, DECADE_ITEMS, DEFAULT_FREE_RARITY_TIERS, DUB, FORMATS, FORMAT_ITEMS,
+    BASE_ID, BROAD_GENRES, CATEGORY_ITEMS, DECADES, DECADE_ITEMS, DEFAULT_FREE_RARITY_TIERS, DUB, FORMATS, FORMAT_ITEMS,
     FREE_SCORE_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, LENS, RARITY_TIERS, REBROADCAST, SAMPLE_ITEMS, SAMPLE_POINTS,
     SCORE_LENS, SCORE_TIERS, SONG_CATEGORIES, SONG_TYPES, SONG_TYPE_ITEMS,
 )
@@ -195,6 +195,31 @@ def build_check_specs(milestone_count: int, milestone_step: int, challenges: boo
     names = [s.name for s in specs]
     assert len(names) == len(set(names)), "duplicate location names"
     return specs
+
+
+# With song_source: own_list only songs from the player's own anime list count, and a small list may have none of
+# what these checks need. own_list_safety excludes them (filler and traps only) so missing them never blocks anyone.
+LIST_RISK_DECADES = {"1980s & Earlier", "1990s"}
+
+
+def needs_wide_list(spec: CheckSpec) -> bool:
+    """True if the check may be impossible with a small anime list."""
+    rules = {
+        "type": lambda: spec.key == "Insert Song",
+        "game_types": lambda: True,
+        "decade": lambda: spec.key in LIST_RISK_DECADES,
+        "genre": lambda: spec.key not in BROAD_GENRES,
+        "format": lambda: spec.key != "Movie",
+        "rarity": lambda: spec.key == "Brutal",
+        "category": lambda: spec.key != "Standard",
+        "score": lambda: spec.key == "Overlooked",
+        "dub": lambda: True,
+        "years": lambda: spec.n >= 25,
+        "game_decades": lambda: spec.n >= 5,
+        "game_genres": lambda: spec.n >= 10,
+        "nexus": lambda: True,  # Nexus draws from the whole song database, not your list
+    }
+    return spec.kind in rules and rules[spec.kind]()
 
 
 # every optional group switched on: the full location table, so ids never depend on a yaml

@@ -1,5 +1,6 @@
 import json
 
+from BaseClasses import LocationProgressType
 from test.bases import WorldTestBase
 
 from ..items import (
@@ -440,3 +441,85 @@ class TestDescriptions(AMQTestBase):
         self.assertEqual(web.location_descriptions["Decade Dive: 1980s & Earlier x10"],
                          "Answer 10 songs from the 1980s or earlier correctly.")
         self.assertEqual(web.location_descriptions["Format Hunter: OVA"], "Answer 1 song from an OVA correctly.")
+
+
+class OwnListSafetyBase(AMQTestBase):
+    def excluded(self) -> set[str]:
+        return {loc.name for loc in self.multiworld.get_locations(1)
+                if loc.progress_type == LocationProgressType.EXCLUDED}
+
+    def fill_and_check_excluded(self) -> None:
+        """Excluded checks end up with filler or traps only, even in a solo seed."""
+        from Fill import distribute_items_restrictive
+        distribute_items_restrictive(self.multiworld)
+        for loc in self.multiworld.get_locations(1):
+            if loc.progress_type == LocationProgressType.EXCLUDED:
+                self.assertTrue(loc.item.excludable, f"{loc.name} holds {loc.item.name}")
+
+
+class TestOwnListSafety(OwnListSafetyBase):
+    options = {"song_source": "own_list"}
+
+    def test_risky_checks_excluded(self) -> None:
+        excluded = self.excluded()
+        for name in ("Genre Scholar: Horror", "Format Hunter: OVA", "Decade Dive: 1980s & Earlier x1",
+                     "First Correct Insert Song", "Brutal Guess-Rate Songs x1", "Year Collector: 25 Different Years",
+                     "Triple Threat: Opening, Ending and Insert in One Game"):
+            self.assertIn(name, excluded)
+        for name in ("Genre Scholar: Action", "Format Hunter: Movie", "Decade Dive: 2010s x10", "First Correct Ending",
+                     "Hard Guess-Rate Songs x5", "Year Collector: 10 Different Years", "Correct Answers: 10"):
+            self.assertNotIn(name, excluded)
+
+    def test_fill(self) -> None:
+        self.fill_and_check_excluded()
+
+
+class TestOwnListSafetyNoTraps(OwnListSafetyBase):
+    """Every optional category, no traps: the boosts alone must cover the excluded checks."""
+    options = {"song_source": "own_list", "trap_percentage": 0, "nexus_checks": True,
+               "unlock_categories": ALL_GATES + ["Song Category", "Anime Score", "Dub & Rebroadcast"]}
+
+    def test_enough_excludable_items(self) -> None:
+        excludable = [i for i in self.multiworld.itempool if i.player == 1 and i.excludable]
+        self.assertGreaterEqual(len(excludable), len(self.excluded()))
+        self.assertIn("First Correct Dub", self.excluded())
+        self.assertIn("Nexus Explorer: 10 Correct in Nexus", self.excluded())
+        self.fill_and_check_excluded()
+
+
+class TestOwnListSafetyOff(OwnListSafetyBase):
+    options = {"song_source": "own_list", "own_list_safety": False}
+
+    def test_nothing_excluded(self) -> None:
+        self.assertEqual(self.excluded(), set())
+
+
+class TestOwnListSafetyOnlyForOwnList(OwnListSafetyBase):
+    options = {"song_source": "mixed"}
+
+    def test_nothing_excluded(self) -> None:
+        self.assertEqual(self.excluded(), set())
+
+
+class TestExcludeLocationGroups(OwnListSafetyBase):
+    """exclude_locations with a group name: those checks get filler too, even without traps."""
+    options = {"exclude_locations": ["Genres", "Formats"], "trap_percentage": 0}
+
+    def test_groups_excluded(self) -> None:
+        self.assertEqual(self.excluded(), LOCATION_GROUPS["Genres"] | LOCATION_GROUPS["Formats"])
+        self.fill_and_check_excluded()
+
+
+class TestOwnListSafetyTightPool(OwnListSafetyBase):
+    """Excluded checks don't count toward fitting the pool, so milestones grow to make room."""
+    options = {"song_source": "own_list", "trap_percentage": 0, "challenge_checks": False, "milestone_count": 5,
+               "fragments_required": 30, "fragment_extra_percent": 100}
+
+    def test_fits(self) -> None:
+        amq = self.amq()
+        open_checks = len(amq.specs) - len(self.excluded())
+        self.assertGreaterEqual(open_checks, len(amq._unlock_items()) + amq.fragment_total)
+        # milestones top out at 50 here, so two of the 30 extra fragments are dropped (with a warning)
+        self.assertEqual(amq.options.milestone_count.value, 50)
+        self.assertEqual(amq.fragment_total, 58)
+        self.fill_and_check_excluded()

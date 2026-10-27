@@ -41,6 +41,31 @@ and TV. Categories you leave out of `unlock_categories` are simply always open.
 | `own_list` | Strict: only songs from your own list count; others are ignored and don't break streaks. | watched only |
 | `mixed` | Every song counts, plus extra checks: Home Turf (correct on-list songs), Uncharted (correct off-list songs) and Best of Both (both in one game). | a mix of watched and random |
 
+### A small anime list
+
+Repeating a song counts again, so a small list can reach any "N correct" check of a kind it has. It can't reach a
+check that needs songs it has none of: with no Horror anime on your list, Genre Scholar: Horror can never be done.
+With `own_list`, `own_list_safety` (on by default) therefore excludes the checks a small list may not reach: they
+still count and send, but only ever hold filler or traps, so missing them never blocks you or anyone else. These are:
+
+* Genre Scholar for every genre except Action, Comedy, Drama, Fantasy, Romance and Slice of Life
+* Format Hunter for OVA, ONA and Special
+* Decade Dive for the 1980s & Earlier and the 1990s
+* Brutal Guess-Rate checks
+* Insert Song checks and Triple Threat
+* Year Collector 25, Time Capsule 5 and Genre Sampler 10
+* Instrumental, Chanting and Character songs, Overlooked anime, dubs and rebroadcasts, and Nexus
+
+Turn it off if your list covers all of that. With the `scholar` or `specialist` goal the goal itself still needs
+those checks, so generation warns: only pick them if your list has the songs.
+
+If a check you can't do still holds something (with `own_list_safety` off, or with another song source), there are
+two ways out:
+
+* Before generating, list it in `exclude_locations` in your YAML. Group names work, for example
+  `exclude_locations: ["Genres", "Formats", "Dubs & Rebroadcasts"]`.
+* During the game, the host can complete it from the server console with `/send_location <player> <check name>`.
+
 ## Difficulty tiers
 
 | Option | Default | Meaning |

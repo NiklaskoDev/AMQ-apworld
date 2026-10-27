@@ -4,19 +4,19 @@ import logging
 import math
 from typing import Any
 
-from BaseClasses import CollectionState, Item, ItemClassification, Region, Tutorial
+from BaseClasses import CollectionState, Item, ItemClassification, LocationProgressType, Region, Tutorial
 from Options import OptionSet
 from worlds.AutoWorld import WebWorld, World
 
 from .descriptions import ITEM_DESCRIPTIONS, LOCATION_DESCRIPTIONS
 from .items import (
-    AMQItem, BROAD_GENRES, CATEGORY_ITEMS, CLOCK, DECADES, DECADE_ITEMS, DUB, FILLER_WEIGHTS, FORMAT_ITEMS, FRAGMENT,
-    FREE_SCORE_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS, RARITY_TIERS,
-    REBROADCAST, SAMPLE_ITEMS, SCORE_FLOORS, SCORE_LENS, SCORE_TIERS, SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
+    AMQItem, BROAD_GENRES, CATEGORY_ITEMS, CHEER, CLOCK, DECADES, DECADE_ITEMS, DUB, FILLER_WEIGHTS, FORMAT_ITEMS,
+    FRAGMENT, FREE_SCORE_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS,
+    RARITY_TIERS, REBROADCAST, SAMPLE_ITEMS, SCORE_FLOORS, SCORE_LENS, SCORE_TIERS, SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
 )
 from .locations import (
     AMQLocation, CheckSpec, EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID, MAX_MILESTONES, Req, STAGES,
-    build_check_specs, stage_fragments,
+    build_check_specs, needs_wide_list, stage_fragments,
 )
 from .options import AMQOptions, OPTION_GROUPS, SongSource
 from .presets import OPTION_PRESETS
@@ -28,7 +28,7 @@ GOAL_KINDS = {"scholar": {"genre"}, "specialist": {"type"}}
 TRACKER_OPTIONS = [
     "goal", "unlock_categories", "fragments_required", "fragment_extra_percent", "milestone_count", "milestone_step",
     "challenge_checks", "multiplayer_checks", "season_checks", "song_source", "free_difficulty_tiers",
-    "guess_time_items", "starting_decades", "starting_genres", "quick_draw_checks", "nexus_checks",
+    "guess_time_items", "starting_decades", "starting_genres", "quick_draw_checks", "nexus_checks", "own_list_safety",
 ]
 
 logger = logging.getLogger("Anime Music Quiz")
@@ -71,6 +71,7 @@ class AMQWorld(World):
     gated: set[str]
     starting: list[str]
     fragment_total: int
+    excluded: set[str]
 
     ut_can_gen_without_yaml = True  # Universal Tracker: everything needed comes from slot data
 
@@ -103,20 +104,39 @@ class AMQWorld(World):
 
         milestones = o.milestone_count.value
         self.specs = specs_for(milestones)
-        while len(self.specs) < needed and milestones < MAX_MILESTONES and not passthrough:
+        # excluded checks can only take filler, so they don't count toward fitting the unlocks and fragments
+        while (len(self.specs) < needed + len(self._excluded(self.specs)) and milestones < MAX_MILESTONES
+               and not passthrough):
             milestones += 1
             self.specs = specs_for(milestones)
+        self.excluded = self._excluded(self.specs)
         if milestones != o.milestone_count.value:
             logger.warning(f"{self.player_name}: raised milestone_count from {o.milestone_count.value} to "
                            f"{milestones} so the item pool fits.")
             o.milestone_count.value = milestones
 
-        spare = len(self.specs) - len(self._unlock_items()) - required
+        spare = len(self.specs) - len(self.excluded) - len(self._unlock_items()) - required
         if spare < extra:
-            # cannot happen with the current option ranges, kept as a guard
+            # only when milestones hit MAX_MILESTONES, e.g. many fragments plus many excluded checks
             logger.warning(f"{self.player_name}: only room for {max(0, spare)} extra fragments.")
             extra = max(0, spare)
         self.fragment_total = required + extra
+
+        if o.song_source.value == SongSource.option_own_list and o.goal.current_key in GOAL_KINDS:
+            what = {"scholar": "every Genre Scholar check", "specialist": "Insert Song checks"}[o.goal.current_key]
+            logger.warning(f"{self.player_name}: the {o.goal.current_key} goal needs {what}; with song_source "
+                           f"own_list, make sure your anime list has the songs for them.")
+
+    def _excluded(self, specs: list[CheckSpec]) -> set[str]:
+        """Checks that may only hold filler: the player's exclude_locations, and with own_list_safety the checks a
+        small anime list may not be able to reach."""
+        o = self.options
+        names: set[str] = set()
+        for name in o.exclude_locations.value:
+            names |= LOCATION_GROUPS.get(name, {name})
+        if o.song_source.value == SongSource.option_own_list and o.own_list_safety:
+            names |= {s.name for s in specs if needs_wide_list(s)}
+        return names & {s.name for s in specs}
 
     def _fix_difficulty_floors(self) -> None:
         """Keep every tier at least 5 percentage points wide so no tier's checks become impossible."""
@@ -202,6 +222,8 @@ class AMQWorld(World):
             reqs = [r for r in spec.reqs if r.category in self.gated]
             if reqs:
                 location.access_rule = self._rule(reqs)
+            if spec.name in self.excluded:
+                location.progress_type = LocationProgressType.EXCLUDED
             region.locations.append(location)
             if spec.kind in goal_kinds:
                 goal_targets.append(location)
@@ -236,7 +258,16 @@ class AMQWorld(World):
         trap_count = round(filler * self.options.trap_percentage.value / 100) if weights else 0
         if trap_count:
             pool += self.random.choices(list(weights), list(weights.values()), k=trap_count)
-        pool += [self.get_filler_item_name() for _ in range(filler - trap_count)]
+        boosts = [self.get_filler_item_name() for _ in range(filler - trap_count)]
+        # excluded checks only take filler and traps, and most boosts are useful: swap in Hype Cheers where short
+        short = len(self.excluded) - trap_count - boosts.count(CHEER)
+        for i, name in enumerate(boosts):
+            if short <= 0:
+                break
+            if name != CHEER:
+                boosts[i] = CHEER
+                short -= 1
+        pool += boosts
 
         self.multiworld.itempool += [self.create_item(n) for n in pool]
 

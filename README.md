@@ -12,7 +12,8 @@ The lobby filters become progression. Song types, decades, genres, anime formats
 behind items, and songs outside your unlocks don't count. Correct guesses send checks: cumulative milestones,
 per-category counts, streaks, flawless starts, variety challenges (Triple Threat, Time Capsule, Genre Sampler),
 seasons, comebacks, marathons and optional multiplayer placements. `song_source` lets each player choose whether any song counts,
-only songs from their own anime list (strict), or a mix with extra on-list/off-list checks. The difficulty tier
+only songs from their own anime list (strict, with the checks a small list may not reach holding only filler), or
+a mix with extra on-list/off-list checks. The difficulty tier
 boundaries and how many tiers start unlocked are configurable too, and the optional Guess Time and Sample Point categories
 lock the room's timer and sample point too, and Song Category, Anime Score and Dub & Rebroadcast can be locked as well.
 Quick Draw checks reward fast answers, Year Collector many different years, and optional Nexus checks the solo mode.

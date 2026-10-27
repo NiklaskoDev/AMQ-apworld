@@ -93,6 +93,15 @@ class SongSource(Choice):
     default = 0
 
 
+class OwnListSafety(DefaultOnToggle):
+    """
+    Only with song_source: own_list. Checks that need songs a small anime list may not have at all (most genres, OVA,
+    ONA and Special, the 1980s and 1990s, Brutal songs, Insert Songs, song categories, Overlooked anime, dubs and
+    rebroadcasts, Nexus, the biggest variety challenges) are excluded: they only hold filler or traps, so missing
+    them never blocks anyone. Turn it off if your list covers everything."""
+    display_name = "Own List Safety"
+
+
 class EasyFloor(Range):
     """Lowest guess rate (%) that counts as Easy. Easy is this value up to 100%."""
     display_name = "Easy Difficulty Floor"
@@ -314,6 +323,7 @@ class AMQOptions(PerGameCommonOptions):
     starting_decades: StartingDecades
     starting_genres: StartingGenres
     song_source: SongSource
+    own_list_safety: OwnListSafety
     easy_floor: EasyFloor
     medium_floor: MediumFloor
     hard_floor: HardFloor
@@ -344,7 +354,8 @@ class AMQOptions(PerGameCommonOptions):
 
 OPTION_GROUPS = [
     OptionGroup("Goal", [Goal, FragmentsRequired, FragmentExtraPercent, FinaleSongs, FinaleAccuracy]),
-    OptionGroup("Unlocks", [UnlockCategories, SongSource, StartingSongType, StartingDecades, StartingGenres]),
+    OptionGroup("Unlocks", [UnlockCategories, SongSource, OwnListSafety, StartingSongType, StartingDecades,
+                            StartingGenres]),
     OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers, GuessTimeStart, GuessTimeStep,
                                GuessTimeItems]),
     OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, SeasonChecks, QuickDrawChecks, NexusChecks,
