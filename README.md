@@ -62,9 +62,10 @@ CI runs the world tests against Archipelago 0.6.7 and `main`, builds the apworld
 ## Releasing
 
 Bump `world_version` in `amq/archipelago.json` and `@version` in the userscript, add an entry at the top of
-`CHANGELOG.md`, then push a matching tag (`git tag v0.8.1 && git push origin v0.8.1`). The release workflow runs the
-tests, checks that the three versions match the tag, and publishes a GitHub release with `amq.apworld`, the
-userscript and the changelog entry as notes. Installed userscripts update from the latest release.
+`CHANGELOG.md`, then push a matching tag (`git tag v0.8.1 && git push origin v0.8.1`), or run the release workflow
+from the Actions tab, which tags the current commit with its version. The release workflow runs the tests, checks
+that the three versions match the tag, and publishes a GitHub release with `amq.apworld`, the userscript and the
+changelog entry as notes. Installed userscripts update from the latest release.
 
 ## About the AMQ integration
 

@@ -3,6 +3,7 @@
     python release.py check [TAG]   world_version, the userscript's @version and the newest CHANGELOG entry agree
                                     (and match TAG, e.g. v0.8.1, when given)
     python release.py notes         prints the newest CHANGELOG entry, for the GitHub release body
+    python release.py version       prints world_version
 """
 import json
 import pathlib
@@ -43,6 +44,8 @@ if __name__ == "__main__":
     command, *args = sys.argv[1:] or ["check"]
     if command == "notes":
         print(changelog()[1])
+    elif command == "version":
+        print(world_version())
     elif command == "check":
         problems = check(args[0] if args else None)
         if problems:
