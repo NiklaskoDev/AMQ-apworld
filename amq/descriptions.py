@@ -4,14 +4,15 @@ from .items import (
     CATEGORY_ITEMS, CHEER, CLOCK, DECADE_ITEMS, DUB, ENCORE, FORMAT_ITEMS, FRAGMENT, GENRE_ITEMS, LENS, MULLIGAN,
     REBROADCAST, SAMPLE_ITEMS, SCORE_LENS, SHIELD, SONG_TYPE_ITEMS, SPOTLIGHT,
 )
-from .locations import ALL_FLAGS, LOCATION_NAME_TO_ID, MAX_MILESTONES, MILESTONE_STEPS, CheckSpec, build_check_specs
+from .locations import LOCATION_NAME_TO_ID, MILESTONE_COUNTS, OTHER_CHECKS, CheckSpec, milestone_name
+
 
 def _decade(d: str) -> str:
     return d.replace(" & Earlier", " or earlier")
 
 
 def _a(word: str) -> str:
-    return ("an " if word[:1] in tuple("AEIOU") else "a ") + word
+    return ("an " if word[0] in "AEIOU" else "a ") + word
 
 
 # Short texts for the website and tools. Only songs inside your current unlocks count toward any check.
@@ -80,50 +81,47 @@ def _songs(n: int, kind: str = "") -> str:
     return f"1 {kind}song" if n == 1 else f"{n} {kind}songs"
 
 
+_CHECK_TEXTS = {
+    "total": lambda s: f"Answer {s.n} songs correctly in total.",
+    "type": lambda s: f"Answer {_songs(s.n)} of type {s.key} correctly.",
+    "decade": lambda s: f"Answer {_songs(s.n)} from the {_decade(s.key)} correctly.",
+    "genre": lambda s: f"Answer {_songs(s.n)} from {s.key} anime correctly.",
+    "format": lambda s: f"Answer {_songs(s.n)} from {_a(s.key)} correctly.",
+    "rarity": lambda s: f"Answer {_songs(s.n)} from the {s.key} song-difficulty tier correctly.",
+    "streak": lambda s: f"Answer {s.n} songs in a row correctly.",
+    "flawless": lambda s: f"Answer the first {s.n} counted songs of a game all correctly.",
+    "accuracy": lambda s: f"Finish a game of at least {s.n} counted songs with {s.pct}% or more correct.",
+    "marathon": lambda s: f"Play a game with at least {s.n} counted songs.",
+    "game_types": lambda s: "Answer an Opening, an Ending and an Insert Song correctly in one game.",
+    "game_decades": lambda s: f"Answer songs from {s.n} different decades correctly in one game.",
+    "game_genres": lambda s: f"Answer songs from {s.n} different genres correctly in one game.",
+    "bounce": lambda s: f"Answer correctly right after a miss, {s.n} times in total.",
+    "comeback": lambda s: f"In one game, answer {s.n} in a row correctly after missing 3 in a row.",
+    "finish": lambda s: f"End a game on a streak of at least {s.n} correct answers.",
+    "years": lambda s: f"Answer songs from {s.n} different years correctly.",
+    "season": lambda s: f"Answer {_songs(s.n)} from anime that aired in {s.key} correctly.",
+    "game_seasons": lambda s: "Answer songs from all four airing seasons correctly in one game.",
+    "sample": lambda s: f"Answer {_songs(s.n)} played at the {s.key} sample point correctly.",
+    "category": lambda s: f"Answer {_songs(s.n)} of the {s.key} song category correctly.",
+    "score": lambda s: f"Answer {_songs(s.n)} from {s.key} anime (by anime score) correctly.",
+    "dub": lambda s: f"Answer {_songs(s.n, 'dubbed' if s.key == 'Dub' else 'rebroadcast')} correctly.",
+    "quick": lambda s: f"Answer {_songs(s.n)} correctly, each locked in with Enter within {s.secs} seconds.",
+    "nexus": lambda s: f"Answer {s.n} songs correctly in Nexus mode.",
+    "list_on": lambda s: f"Answer {s.n} songs from your own anime list correctly.",
+    "list_off": lambda s: f"Answer {s.n} songs from outside your anime list correctly.",
+    "game_list_mix": lambda s: f"Answer {s.n} on-list and {s.n} off-list songs correctly in one game.",
+    "mp_podium": lambda s: f"Finish in the top 3 of a game with {s.n} or more players.",
+    "mp_win": lambda s: f"Win a game with {s.n} or more players.",
+}
+
+
 def describe(spec: CheckSpec) -> str:
-    n, key = spec.n, spec.key
-    texts = {
-        "total": f"Answer {n} songs correctly in total.",
-        "type": f"Answer {_songs(n)} of type {key} correctly.",
-        "decade": f"Answer {_songs(n)} from the {_decade(key)} correctly.",
-        "genre": f"Answer {_songs(n)} from {key} anime correctly.",
-        "format": f"Answer {_songs(n)} from {_a(key)} correctly.",
-        "rarity": f"Answer {_songs(n)} from the {key} song-difficulty tier correctly.",
-        "streak": f"Answer {n} songs in a row correctly.",
-        "flawless": f"Answer the first {n} counted songs of a game all correctly.",
-        "accuracy": f"Finish a game of at least {n} counted songs with {spec.pct}% or more correct.",
-        "marathon": f"Play a game with at least {n} counted songs.",
-        "game_types": "Answer an Opening, an Ending and an Insert Song correctly in one game.",
-        "game_decades": f"Answer songs from {n} different decades correctly in one game.",
-        "game_genres": f"Answer songs from {n} different genres correctly in one game.",
-        "bounce": f"Answer correctly right after a miss, {n} times in total.",
-        "comeback": f"In one game, answer {n} in a row correctly after missing 3 in a row.",
-        "finish": f"End a game on a streak of at least {n} correct answers.",
-        "years": f"Answer songs from {n} different years correctly.",
-        "season": f"Answer {_songs(n)} from anime that aired in {key} correctly.",
-        "game_seasons": "Answer songs from all four airing seasons correctly in one game.",
-        "sample": f"Answer {_songs(n)} played at the {key} sample point correctly.",
-        "category": f"Answer {_songs(n)} of the {key} song category correctly.",
-        "score": f"Answer {_songs(n)} from {key} anime (by anime score) correctly.",
-        "dub": f"Answer {_songs(n, 'dubbed' if key == 'Dub' else 'rebroadcast')} correctly.",
-        "quick": f"Answer {_songs(n)} correctly, each locked in with Enter within {spec.secs} seconds.",
-        "nexus": f"Answer {n} songs correctly in Nexus mode.",
-        "list_on": f"Answer {n} songs from your own anime list correctly.",
-        "list_off": f"Answer {n} songs from outside your anime list correctly.",
-        "game_list_mix": f"Answer {n} on-list and {n} off-list songs correctly in one game.",
-        "mp_podium": f"Finish in the top 3 of a game with {n} or more players.",
-        "mp_win": f"Win a game with {n} or more players.",
-    }
-    return texts[spec.kind]
+    return _CHECK_TEXTS[spec.kind](spec)
 
 
 def _location_descriptions() -> dict[str, str]:
-    out = {spec.name: describe(spec)
-           for spec in build_check_specs(0, 1, True, True, True, **ALL_FLAGS)}
-    for step in MILESTONE_STEPS:
-        for spec in build_check_specs(MAX_MILESTONES, step, False, False):
-            if spec.kind == "total":
-                out[spec.name] = describe(spec)
+    milestones = [CheckSpec(milestone_name(n), "total", 0, "Milestones", n=n) for n in MILESTONE_COUNTS]
+    out = {spec.name: describe(spec) for spec in milestones + OTHER_CHECKS}
     assert set(out) == set(LOCATION_NAME_TO_ID), "every location needs a description"
     return {**out, **LOCATION_GROUP_DESCRIPTIONS}
 

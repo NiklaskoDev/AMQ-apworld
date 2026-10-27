@@ -29,6 +29,7 @@
   const TIERS = ['Easy', 'Medium', 'Hard', 'Brutal'];
   const SEASONS = ['Winter', 'Spring', 'Summer', 'Fall'];
   const SAMPLE_POINTS = ['Start', 'Middle', 'End', 'Random']; // Start is always open
+  const SAMPLE_VALUES = { 1: 'Start', 2: 'Middle', 3: 'End' }; // AMQ's samplePoint.standardValue
   // guess-rate floors (%) matching the lobby slider; seeds set their own via slot data, these are the defaults
   const DEFAULT_FLOORS = { Easy: 60, Medium: 25, Hard: 10, Brutal: 0 };
   const DEFAULT_FREE_TIERS = 2;
@@ -39,7 +40,8 @@
   const SCORE_TIERS = ['Acclaimed', 'Well Liked', 'Mixed', 'Overlooked'];
   const DEFAULT_SCORE_FLOORS = { Acclaimed: 8, 'Well Liked': 7, Mixed: 6, Overlooked: 0 };
   const scoreFloor = t => ((S.data && S.data.score_floors) || DEFAULT_SCORE_FLOORS)[t];
-  const freeScoreTiers = () => (S.data && S.data.free_score_tiers) || 2;
+  const DEFAULT_FREE_SCORE_TIERS = 2;
+  const freeScoreTiers = () => (S.data && S.data.free_score_tiers) || DEFAULT_FREE_SCORE_TIERS;
   const TIMED_TRAPS = { 'Mute Trap': 'mute', 'Reverse Typing Trap': 'reverse', 'Tiny Text Trap': 'tiny', 'Blind Trap': 'blind' };
   const TRAPS = [...Object.keys(TIMED_TRAPS), 'Streak Wipe Trap', 'Tax Collector Trap'];
   const DEATH_GAME_SONGS = 10; // a Poor Game death needs at least this many eligible songs
@@ -84,10 +86,13 @@
     const v = value.trim().toLowerCase().replace(/[-_]/g, ' ');
     return list.find(x => x.toLowerCase().replace(/-/g, ' ') === v) || null;
   };
-  function decadeOf(vintage) {
+  function yearOf(vintage) {
     const m = /(\d{4})/.exec(String(vintage || ''));
-    if (!m) return null;
-    const y = +m[1];
+    return m ? +m[1] : null;
+  }
+  function decadeOf(vintage) {
+    const y = yearOf(vintage);
+    if (y === null) return null;
     return y < 1990 ? DECADES[0] : y < 2000 ? DECADES[1] : y < 2010 ? DECADES[2] : y < 2020 ? DECADES[3] : DECADES[4];
   }
   function seasonOf(vintage) {
@@ -110,10 +115,6 @@
     const list = Array.isArray(raw) ? raw : (raw && typeof raw === 'object') ? Object.values(raw) : [];
     const names = list.map(g => (typeof g === 'string' ? g : g && (g.name || g.genre || g.tag || g.title)));
     return [...new Set(names.map(n => canon(GENRES, n)).filter(Boolean))];
-  }
-  function yearOf(vintage) {
-    const m = /(\d{4})/.exec(String(vintage || ''));
-    return m ? +m[1] : null;
   }
   // The fields below are not used by the community scripts this client was checked against, so several spellings are
   // accepted. undefined means AMQ sent nothing readable: the song counts and that category's checks can't progress.
@@ -179,24 +180,28 @@
     if (typeof volumeController.adjustVolume === 'function') volumeController.adjustVolume();
     return true;
   }
-  /** The room's guess time in seconds (the top of the range when it is random), or null if unreadable. */
+  const roomSetting = name => (typeof lobby !== 'undefined' && lobby && lobby.settings ? lobby.settings[name] : null);
+  /** A guess time setting in seconds: the top of the range when it is random. */
+  const guessTimeTop = g => (g.randomOn && Array.isArray(g.randomValue) ? g.randomValue[1] : g.standardValue);
+  /** A sample point setting as Start, Middle, End or Random, or null. */
+  const samplePointOf = sp => (sp.randomOn ? 'Random' : SAMPLE_VALUES[sp.standardValue] || null);
+  /** The room's guess time in seconds, or null if unreadable. */
   function roomGuessTime() {
-    const g = typeof lobby !== 'undefined' && lobby && lobby.settings && lobby.settings.guessTime;
+    const g = roomSetting('guessTime');
     if (!g) return null;
-    const t = g.randomOn && Array.isArray(g.randomValue) ? g.randomValue[1] : g.standardValue;
+    const t = guessTimeTop(g);
     return typeof t === 'number' && isFinite(t) ? t : null;
   }
-  /** The room's sample point (Start, Middle, End or Random), or null if unreadable. */
+  /** The room's sample point, or null if unreadable. */
   function roomSamplePoint() {
-    const sp = typeof lobby !== 'undefined' && lobby && lobby.settings && lobby.settings.samplePoint;
-    if (!sp) return null;
-    if (sp.randomOn) return 'Random';
-    return { 1: 'Start', 2: 'Middle', 3: 'End' }[sp.standardValue] || null;
+    const sp = roomSetting('samplePoint');
+    return sp ? samplePointOf(sp) : null;
   }
   const ANSWER_INPUT = '#qpAnswerInput';
   const ANSWER_INPUT_ID = 'qpAnswerInput';
   const QUIZ_VIDEO = '#qpVideosInner video, #qpVideoContainer video'; // the clip shown once a song is revealed
   const CHAT_INPUT_ID = 'gcInput';
+  const AP_COMMAND = /^\/ap(?:\s+([\s\S]*))?$/i;
   /** Calls `onSubmit` when an answer is locked in with Enter (also picking a suggestion with Enter). */
   function hookAnswerInput(onSubmit) {
     if (!document.addEventListener) return;
@@ -214,7 +219,7 @@
     let swallow = false;
     document.addEventListener('keydown', ev => {
       if (ev.key !== 'Enter' || !ev.target || ev.target.id !== CHAT_INPUT_ID) return;
-      const m = /^\/ap(?:\s+([\s\S]*))?$/i.exec(ev.target.value || '');
+      const m = AP_COMMAND.exec(ev.target.value || '');
       if (!m) return;
       ev.preventDefault(); ev.stopImmediatePropagation();
       ev.target.value = ''; swallow = true;
@@ -228,7 +233,7 @@
     const msgs = p && Array.isArray(p.messages) ? p.messages : p ? [p] : [];
     const me = typeof selfName !== 'undefined' ? selfName : null;
     return msgs.filter(x => x && x.sender === me && typeof x.message === 'string')
-      .map(x => /^\/ap(?:\s+([\s\S]*))?$/i.exec(x.message)).filter(Boolean).map(m => (m[1] || '').trim());
+      .map(x => AP_COMMAND.exec(x.message)).filter(Boolean).map(m => (m[1] || '').trim());
   }
 
   const FORMAT_KEYS = { TV: 'tv', Movie: 'movie', OVA: 'ova', ONA: 'ona', Special: 'special' };
@@ -281,15 +286,14 @@
     if (want.guessTime) {
       const g = s.guessTime;
       if (g && typeof g.standardValue === 'number') {
-        const top = g.randomOn && Array.isArray(g.randomValue) ? g.randomValue[1] : g.standardValue;
-        if (top > want.guessTime) { g.randomOn = false; g.standardValue = want.guessTime; } // shorter is fine as it is
+        if (guessTimeTop(g) > want.guessTime) { g.randomOn = false; g.standardValue = want.guessTime; } // shorter is fine as it is
         done.push('guess time');
       } else manual.push('guess time');
     }
     if (want.samples) {
       const sp = s.samplePoint;
       if (sp && typeof sp.standardValue === 'number') {
-        const now = sp.randomOn ? 'Random' : { 1: 'Start', 2: 'Middle', 3: 'End' }[sp.standardValue];
+        const now = samplePointOf(sp);
         if (want.samples.length === 1 && want.samples[0] === 'Random') sp.randomOn = true;
         else if (want.samples.length === 1) { sp.randomOn = false; sp.standardValue = SAMPLE_POINTS.indexOf(want.samples[0]) + 1; }
         else if (!want.samples.includes(now)) { sp.randomOn = false; sp.standardValue = 1; } // Start is always open
@@ -370,17 +374,18 @@
     }
     S.unlocks = u; S.fragments = fragments;
   }
-  const maxTier = () => (gated('Rarity') ? Math.min(TIERS.length - 1, freeTiers() - 1 + S.unlocks.lens) : TIERS.length - 1);
-  const maxScoreTier = () => (gated('Anime Score') ? Math.min(SCORE_TIERS.length - 1, freeScoreTiers() - 1 + S.unlocks.scoreLens)
-    : SCORE_TIERS.length - 1);
+  /** Index of the hardest open tier: the free tiers plus one per lens, or every tier when the category is open. */
+  const topTier = (cat, tiers, free, lenses) => (gated(cat) ? Math.min(tiers.length - 1, free - 1 + lenses) : tiers.length - 1);
+  const maxTier = () => topTier('Rarity', TIERS, freeTiers(), S.unlocks.lens);
+  const maxScoreTier = () => topTier('Anime Score', SCORE_TIERS, freeScoreTiers(), S.unlocks.scoreLens);
   const genreCounts = g => !gated('Genres') || S.unlocks.genres.has(g);
   /** Longest room guess time that counts, in seconds. */
   function allowedGuessTime() {
     const gt = (S.data && S.data.guess_time) || { start: 10, step: 5 };
     return Math.min(GUESS_TIME_MAX, gt.start + gt.step * S.unlocks.clocks);
   }
-  /** Returns null when the song counts, otherwise a short reason. */
   const songSource = () => (S.data && S.data.song_source) || 'any';
+  /** Returns null when the song counts, otherwise a short reason. */
   function ineligibleReason(song, own, room = {}) {
     const U = S.unlocks;
     if (gated('Guess Time') && room.guessTime !== null && room.guessTime !== undefined && room.guessTime > allowedGuessTime()) {
@@ -412,11 +417,13 @@
     if (S.log.length > 80) S.log.shift();
     render();
   }
+  const chatPost = text => amqChat('[AP] ' + text);
   /** Logs and, unless the AMQ chat bridge is off, also posts to AMQ's chat. */
   function notify(text) {
     say(text);
-    if (S.chatMode !== 'off') amqChat('[AP] ' + text);
+    if (S.chatMode !== 'off') chatPost(text);
   }
+  const NOT_CONNECTED = 'Connect to Archipelago first.';
   const storeKey = k => `${k}_${S.seed}_${S.team}_${S.slot}`;
   const dsKey = () => `AMQ_${S.team}_${S.slot}`;
 
@@ -459,6 +466,7 @@
     S.ws = null; S.connected = false; S.ready = false; S.offline = false;
   }
 
+  const flip = o => Object.fromEntries(Object.entries(o || {}).map(([n, i]) => [i, n]));
   function handle(m) {
     switch (m.cmd) {
       case 'RoomInfo':
@@ -467,7 +475,6 @@
         break;
       case 'DataPackage':
         for (const [game, pkg] of Object.entries(m.data.games || {})) {
-          const flip = o => Object.fromEntries(Object.entries(o || {}).map(([n, i]) => [i, n]));
           S.games[game] = { items: flip(pkg.item_name_to_id), locations: flip(pkg.location_name_to_id) };
         }
         if (!S.connected) {
@@ -494,16 +501,13 @@
         rebuildUnlocks();
         if (!resume) S.game = freshGame();
         if ((S.data.client_version || 0) > CLIENT_VERSION) say('This seed expects a newer userscript. Please update.');
-        {
-          const tags = [S.data.death_link && 'DeathLink', S.data.trap_link && 'TrapLink', S.data.ring_link && 'RingLink']
-            .filter(Boolean);
-          if (tags.length) send([{ cmd: 'ConnectUpdate', tags }]);
-        }
+        const tags = [S.data.death_link && 'DeathLink', S.data.trap_link && 'TrapLink', S.data.ring_link && 'RingLink']
+          .filter(Boolean);
+        if (tags.length) send([{ cmd: 'ConnectUpdate', tags }]);
         send([{ cmd: 'Get', keys: [dsKey()] }]);
-        { // what each open check holds; create_as_hint 0 so nothing is announced or spent
-          const open = S.data.checks.map(c => c.id).filter(id => !S.checked.has(id));
-          if (open.length) send([{ cmd: 'LocationScouts', locations: open, create_as_hint: 0 }]);
-        }
+        // what each open check holds; create_as_hint 0 so nothing is announced or spent
+        const unchecked = S.data.checks.map(c => c.id).filter(id => !S.checked.has(id));
+        if (unchecked.length) send([{ cmd: 'LocationScouts', locations: unchecked, create_as_hint: 0 }]);
         say(`Logged in as ${S.slotName}.`);
         break;
       }
@@ -514,8 +518,7 @@
         // the save with more songs played wins (local after playing offline); on a tie the server's copy
         const pick = [remote, local].filter(x => x && typeof x === 'object' && x.v === 1)
           .sort((a, b) => (b.answered || 0) - (a.answered || 0))[0];
-        S.prog = Object.assign(freshProgress(), pick || {});
-        S.prog.traps = Object.assign(freshProgress().traps, (pick && pick.traps) || {});
+        restoreProg(pick || {});
         S.ready = true;
         S.queued.splice(0).forEach(onItems);
         applyTraps();
@@ -536,7 +539,7 @@
       case 'PrintJSON': {
         const text = printJson(m.data || []);
         say(text);
-        if (chatWants(m)) amqChat('[AP] ' + text);
+        if (chatWants(m)) chatPost(text);
         break;
       }
       case 'Bounced':
@@ -549,6 +552,11 @@
   }
 
   // ---------- offline queue ----------
+  /** Progress from a save (server, browser or export), with fields added since it was written at their defaults. */
+  function restoreProg(saved) {
+    S.prog = Object.assign(freshProgress(), saved);
+    S.prog.traps = Object.assign(freshProgress().traps, saved.traps || {});
+  }
   const allPending = () => [...new Set([...load(storeKey('pending'), []), ...S.pending])];
   /** Sends the checks found while the connection was down. */
   function flushPending() {
@@ -571,10 +579,7 @@
     if (!S.data) return 'Connect to the slot first.';
     if (d.seed !== S.seed || d.team !== S.team || d.slot !== S.slot) return 'That export is for a different seed or slot.';
     const newer = (d.prog.answered || 0) > (S.prog.answered || 0);
-    if (newer) {
-      S.prog = Object.assign(freshProgress(), d.prog);
-      S.prog.traps = Object.assign(freshProgress().traps, d.prog.traps || {});
-    }
+    if (newer) restoreProg(d.prog);
     S.pending = [...new Set([...allPending(), ...(Array.isArray(d.pending) ? d.pending : [])])];
     save(storeKey('pending'), S.pending);
     if (S.connected && S.ready) { flushPending(); saveProg(); evaluate(); } else save(storeKey('prog'), S.prog);
@@ -606,7 +611,7 @@
     const mine = m.receiving === S.slot || (m.item && m.item.player === S.slot) || m.slot === S.slot;
     return mine && CHAT_MINE.includes(m.type);
   }
-  function reply(text) { say(text); amqChat('[AP] ' + text); }
+  function reply(text) { say(text); chatPost(text); }
   /** "/ap ..." from AMQ's chat: local commands, everything else goes to the Archipelago room (so !hint etc. work). */
   function apCommand(text) {
     if (!text || /^help$/i.test(text)) {
@@ -618,12 +623,12 @@
     } else if (/^lobby\s+next$/i.test(text)) {
       applyFocus(reply);
     } else if (/^next$/i.test(text)) {
-      if (!S.ready) return reply('Connect to Archipelago first.');
+      if (!S.ready) return reply(NOT_CONNECTED);
       const next = nextUp(3);
       reply(next.length ? 'Closest checks: ' + next.map(c => { const [a, b] = progressOf(c, false); return `${c.name} (${a}/${b})`; }).join('; ') +
         '. /ap lobby next focuses the room on the first.' : 'No open check can be focused with the room settings right now.');
     } else if (/^missing$/i.test(text)) {
-      if (!S.ready) return reply('Connect to Archipelago first.');
+      if (!S.ready) return reply(NOT_CONNECTED);
       const missing = missingUnlocks();
       reply(missing.length ? `Not found yet: ${missing.join(', ')}. Hint one with /ap !hint <item> or the panel.` : 'You have every unlock.');
     } else if (!S.connected) {
@@ -653,13 +658,13 @@
     if (name === 'Tax Collector Trap') { S.prog.total = Math.max(0, S.prog.total - 5); return 'Tax Collector Trap! -5 milestone progress.'; }
     return null;
   }
+  /** Sends a Death Link, Trap Link or Ring Link message to every game with that tag. */
+  const bounce = (tag, data) => send([{ cmd: 'Bounce', tags: [tag], data: { time: Date.now() / 1000, ...data } }]);
   function applyOneShot(name) {
     const trap = trapEffect(name);
     if (trap) {
       notify(trap);
-      if (S.data.trap_link) {
-        send([{ cmd: 'Bounce', tags: ['TrapLink'], data: { time: Date.now() / 1000, source: S.slotName, trap_name: name } }]);
-      }
+      if (S.data.trap_link) bounce('TrapLink', { source: S.slotName, trap_name: name });
     }
     else if (name === 'Encore Ticket') { S.prog.encore++; notify('Encore Ticket: your next counted answer is worth 2.'); }
     else if (name === 'Streak Shield') { S.prog.shield++; notify('Streak Shield ready.'); }
@@ -667,7 +672,7 @@
     else if (name === 'Spotlight') { S.prog.spotlight++; notify('Spotlight: your next counted answer counts twice toward its category checks.'); }
     else if (name === 'Hype Cheer') {
       S.prog.total += 2;
-      for (const k of Object.keys(S.prog.traps)) if (S.prog.traps[k] > 0) S.prog.traps[k]--;
+      shortenTraps();
       notify('Hype Cheer! +2 milestone progress, and active traps end a song sooner.');
     }
     applyTraps();
@@ -717,7 +722,7 @@
   }
   function sendRings(amount) {
     if (!S.data.ring_link || !S.connected) return;
-    send([{ cmd: 'Bounce', tags: ['RingLink'], data: { time: Date.now() / 1000, source: S.ringSource, amount } }]);
+    bounce('RingLink', { source: S.ringSource, amount });
   }
 
   function saveProg() {
@@ -740,8 +745,7 @@
     sendDeath(cause);
   }
   function sendDeath(cause) {
-    S.lastDeathSent = Date.now() / 1000;
-    send([{ cmd: 'Bounce', tags: ['DeathLink'], data: { time: S.lastDeathSent, source: S.slotName, cause } }]);
+    bounce('DeathLink', { source: S.slotName, cause });
     say('Death Link sent: ' + cause);
   }
   function onDeath(d) {
@@ -763,17 +767,14 @@
       T.tiny > 0 ? `${ANSWER_INPUT}{font-size:5px!important}` : '',
       T.blind > 0 ? `${QUIZ_VIDEO}{visibility:hidden!important}` : '',
     ].join('\n');
-    if (T.mute > 0) {
-      if (!amqVolume(true)) document.querySelectorAll('video,audio').forEach(el => { el.muted = true; });
-      trapMuted = true;
-    } else if (trapMuted) {
-      if (!amqVolume(false)) document.querySelectorAll('video,audio').forEach(el => { el.muted = false; });
-      trapMuted = false;
+    if (T.mute > 0 || trapMuted) {
+      trapMuted = T.mute > 0;
+      if (!amqVolume(trapMuted)) document.querySelectorAll('video,audio').forEach(el => { el.muted = trapMuted; });
     }
   }
-  function tickTraps() {
+  /** Every active timed trap lasts one song less. */
+  function shortenTraps() {
     for (const k of Object.keys(S.prog.traps)) if (S.prog.traps[k] > 0) S.prog.traps[k]--;
-    applyTraps();
   }
 
   // ---------- quiz events ----------
@@ -785,18 +786,9 @@
     S.lastSubmit = 0;
     return t;
   }
-  function onAnswerResults(p) {
-    S.lastPayload = p;
-    const secs = answerSeconds();
-    if (!(S.connected || S.offline) || !S.ready) return;
-    const own = extractOwn(p);
-    if (!own) return;
-    const song = extractSong(p);
-    const g = S.game, P = S.prog;
-    g.songs++; P.answered++;
-    g.standing = { rank: own.rank, count: own.count };
-    const room = { guessTime: roomGuessTime(), samplePoint: roomSamplePoint() };
-    const warnOnce = (key, text) => { if (!S.warned.has(key)) { S.warned.add(key); say(text); } };
+  const warnOnce = (key, text) => { if (!S.warned.has(key)) { S.warned.add(key); say(text); } };
+  /** Says once when a locked category's room setting or song field can't be read (songs then count anyway). */
+  function warnUnreadable(song, room) {
     if (gated('Guess Time') && room.guessTime === null) {
       warnOnce('guess', "Can't read the room's guess time, so songs count regardless. Keep it within your allowed time.");
     }
@@ -813,6 +805,87 @@
     if (gated('Dub & Rebroadcast') && (song.dub === undefined || song.rebroadcast === undefined)) {
       warnOnce('dub', "Can't tell dubs and rebroadcasts apart, so songs count regardless and their checks can't progress.");
     }
+  }
+  /** Counts an eligible correct answer toward every check it feeds. Returns the result line's status. */
+  function countCorrect(song, own, room, secs) {
+    const g = S.game, P = S.prog;
+    g.eligibleCorrect++; g.streak++; g.best = Math.max(g.best, g.streak); g.missRun = 0; g.dry = 0;
+    if (g.afterMiss) { P.bounce++; g.afterMiss = false; }
+    if (g.armed) g.comebackBest = Math.max(g.comebackBest, g.streak);
+    const weight = P.encore > 0 ? 2 : 1;
+    if (weight === 2) P.encore--;
+    P.total += weight;
+    // Spotlight doubles the per-category counts, Encore the milestones
+    const spot = P.spotlight > 0 ? 2 : 1;
+    if (spot === 2) P.spotlight--;
+    const tally = (bucket, key) => { if (key !== undefined && key !== null) bump(bucket, key, spot); };
+    tally(P.type, song.type); tally(P.decade, song.decade); tally(P.format, song.format); tally(P.rarity, song.tier);
+    tally(P.sample, room.samplePoint); tally(P.season, song.season); tally(P.category, song.category);
+    tally(P.score, song.scoreTier);
+    if (song.dub) tally(P.dub, 'Dub');
+    if (song.rebroadcast) tally(P.dub, 'Rebroadcast');
+    song.genres.filter(genreCounts).forEach(x => { bump(P.genre, x, spot); g.genres.add(x); });
+    g.types.add(song.type); g.decades.add(song.decade);
+    if (song.season) g.seasons.add(song.season);
+    if (song.year) bump(P.years, song.year);
+    if (secs !== null) quickLimits().forEach(limit => { if (secs <= limit) bump(P.quick, limit); });
+    if (own.nexus) P.nexus++;
+    if (own.onList) { P.listOn++; g.listOn++; } else { P.listOff++; g.listOff++; }
+    sendRings(1);
+    let status = weight === 2 ? 'counted x2 (Encore)' : 'counted';
+    if (spot === 2) status += ', Spotlight';
+    if (secs !== null) status += ` in ${secs.toFixed(1)}s`;
+    return status;
+  }
+  /** An eligible miss: a Mulligan forgives it, a Streak Shield keeps the streak, else it may send a death. */
+  function countMiss() {
+    const g = S.game, P = S.prog;
+    if (P.mulligan > 0) {
+      P.mulligan--; g.eligible--; // forgiven as if the song had not played
+      return 'missed, Mulligan used';
+    }
+    if (P.shield > 0) {
+      P.shield--; g.afterMiss = true;
+      return 'missed, Streak Shield held';
+    }
+    g.streak = 0; g.missRun++; g.afterMiss = true;
+    if (++g.dry >= 3) g.armed = true;
+    if (S.data.death_link && deathTrigger() !== 'poor_game' && g.missRun >= S.data.death_link_misses) {
+      g.missRun = 0;
+      dueDeath(`${S.slotName} missed ${S.data.death_link_misses} songs in a row.`);
+    }
+    return 'missed';
+  }
+  /** The panel's "Last song" line: what the song was and what happened to it. */
+  function songLine(song, own, room, status) {
+    const origin = songSource() === 'any' ? null : own.onList ? 'on list' : 'off list';
+    const sample = gated('Sample Point') && room.samplePoint ? `${room.samplePoint} sample` : null;
+    const extra = [gated('Song Category') && song.category, gated('Anime Score') && song.scoreTier && `${song.scoreTier} anime`,
+      song.dub && 'dub', song.rebroadcast && 'rebroadcast'];
+    return [song.type, song.decade, song.format, song.tier, ...extra, sample, origin].filter(Boolean).join(' · ') +
+      ' → ' + status;
+  }
+  /** Once per game, when at least 3 in 5 songs didn't count, points at the lobby settings. */
+  function warnIfMostIgnored() {
+    const g = S.game;
+    if (g.lobbyWarned || g.songs < 5 || g.ignored * 5 < g.songs * 3) return;
+    g.lobbyWarned = true;
+    const top = Object.entries(g.reasons).sort((a, b) => b[1] - a[1])[0][0];
+    notify(`${g.ignored} of ${g.songs} songs this game didn't count (most often: ${top}). ` +
+      'Use Apply to room in the panel or /ap lobby to match your unlocks.');
+  }
+  function onAnswerResults(p) {
+    S.lastPayload = p;
+    const secs = answerSeconds();
+    if (!(S.connected || S.offline) || !S.ready) return;
+    const own = extractOwn(p);
+    if (!own) return;
+    const song = extractSong(p);
+    const g = S.game;
+    g.songs++; S.prog.answered++;
+    g.standing = { rank: own.rank, count: own.count };
+    const room = { guessTime: roomGuessTime(), samplePoint: roomSamplePoint() };
+    warnUnreadable(song, room);
     const reason = ineligibleReason(song, own, room);
     let status;
     if (reason) {
@@ -820,62 +893,12 @@
       g.ignored++; bump(g.reasons, reason);
     } else {
       g.eligible++;
-      if (own.correct) {
-        g.eligibleCorrect++; g.streak++; g.best = Math.max(g.best, g.streak); g.missRun = 0; g.dry = 0;
-        if (g.afterMiss) { P.bounce++; g.afterMiss = false; }
-        if (g.armed) g.comebackBest = Math.max(g.comebackBest, g.streak);
-        const weight = P.encore > 0 ? 2 : 1;
-        if (weight === 2) P.encore--;
-        P.total += weight;
-        // Spotlight doubles the per-category counts, Encore the milestones
-        const spot = P.spotlight > 0 ? 2 : 1;
-        if (spot === 2) P.spotlight--;
-        const tally = (bucket, key) => { if (key !== undefined && key !== null) bump(bucket, key, spot); };
-        tally(P.type, song.type); tally(P.decade, song.decade); tally(P.format, song.format); tally(P.rarity, song.tier);
-        tally(P.sample, room.samplePoint); tally(P.season, song.season); tally(P.category, song.category);
-        tally(P.score, song.scoreTier);
-        if (song.dub) tally(P.dub, 'Dub');
-        if (song.rebroadcast) tally(P.dub, 'Rebroadcast');
-        song.genres.filter(genreCounts).forEach(x => { bump(P.genre, x, spot); g.genres.add(x); });
-        g.types.add(song.type); g.decades.add(song.decade);
-        if (song.season) g.seasons.add(song.season);
-        if (song.year) bump(P.years, song.year);
-        if (secs !== null) quickLimits().forEach(limit => { if (secs <= limit) bump(P.quick, limit); });
-        if (own.nexus) P.nexus++;
-        if (own.onList) { P.listOn++; g.listOn++; } else { P.listOff++; g.listOff++; }
-        status = weight === 2 ? 'counted x2 (Encore)' : 'counted';
-        if (spot === 2) status += ', Spotlight';
-        if (secs !== null) status += ` in ${secs.toFixed(1)}s`;
-        sendRings(1);
-      } else if (P.mulligan > 0) {
-        P.mulligan--; g.eligible--; // forgiven as if the song had not played
-        status = 'missed, Mulligan used';
-      } else if (P.shield > 0) {
-        P.shield--; g.afterMiss = true;
-        status = 'missed, Streak Shield held';
-      } else {
-        g.streak = 0; g.missRun++; g.afterMiss = true;
-        if (++g.dry >= 3) g.armed = true;
-        status = 'missed';
-        if (S.data.death_link && deathTrigger() !== 'poor_game' && g.missRun >= S.data.death_link_misses) {
-          g.missRun = 0;
-          dueDeath(`${S.slotName} missed ${S.data.death_link_misses} songs in a row.`);
-        }
-      }
+      status = own.correct ? countCorrect(song, own, room, secs) : countMiss();
     }
-    const origin = songSource() === 'any' ? null : own.onList ? 'on list' : 'off list';
-    const sample = gated('Sample Point') && room.samplePoint ? `${room.samplePoint} sample` : null;
-    const extra = [gated('Song Category') && song.category, gated('Anime Score') && song.scoreTier && `${song.scoreTier} anime`,
-      song.dub && 'dub', song.rebroadcast && 'rebroadcast'];
-    S.lastSong = [song.type, song.decade, song.format, song.tier, ...extra, sample, origin].filter(Boolean).join(' · ') +
-      ' → ' + status;
-    if (!g.lobbyWarned && g.songs >= 5 && g.ignored * 5 >= g.songs * 3) {
-      g.lobbyWarned = true;
-      const top = Object.entries(g.reasons).sort((a, b) => b[1] - a[1])[0][0];
-      notify(`${g.ignored} of ${g.songs} songs this game didn't count (most often: ${top}). ` +
-        'Use Apply to room in the panel or /ap lobby to match your unlocks.');
-    }
-    tickTraps();
+    S.lastSong = songLine(song, own, room, status);
+    warnIfMostIgnored();
+    shortenTraps();
+    applyTraps();
     evaluate();
     saveProg();
   }
@@ -900,23 +923,16 @@
   function onSongStart() { S.songStart = Date.now(); S.lastSubmit = 0; applyTraps(); }
 
   // ---------- checks ----------
+  // checks whose progress is a counter in S.prog[kind][key]
+  const COUNTER_KINDS = ['type', 'decade', 'genre', 'format', 'rarity', 'season', 'sample', 'category', 'score', 'dub'];
+  /** [progress, needed] for a check. `final` is set once the game has ended. */
   function progressOf(c, final) {
     const g = S.game, P = S.prog;
-    const count = (bucket, key) => (P[bucket][key] || 0);
+    if (COUNTER_KINDS.includes(c.kind)) return [P[c.kind][c.key] || 0, c.n];
     switch (c.kind) {
       case 'total': return [P.total, c.n];
-      case 'type': return [count('type', c.key), c.n];
-      case 'decade': return [count('decade', c.key), c.n];
-      case 'genre': return [count('genre', c.key), c.n];
-      case 'format': return [count('format', c.key), c.n];
-      case 'rarity': return [count('rarity', c.key), c.n];
-      case 'season': return [count('season', c.key), c.n];
-      case 'sample': return [count('sample', c.key), c.n];
-      case 'category': return [count('category', c.key), c.n];
-      case 'score': return [count('score', c.key), c.n];
-      case 'dub': return [count('dub', c.key), c.n];
       case 'years': return [Object.keys(P.years).length, c.n];
-      case 'quick': return [count('quick', c.secs), c.n];
+      case 'quick': return [P.quick[c.secs] || 0, c.n];
       case 'nexus': return [P.nexus, c.n];
       case 'bounce': return [P.bounce, c.n];
       case 'comeback': return [g.comebackBest, c.n];
@@ -1042,15 +1058,14 @@
       .map(c => { const [a, b] = progressOf(c, false); return { c, left: b - Math.min(a, b), ratio: Math.min(a, b) / b }; })
       .sort((x, y) => x.left - y.left || y.ratio - x.ratio).slice(0, limit).map(x => x.c);
   }
+  const setByHand = r => (r.manual.length ? ` Set by hand: ${r.manual.join(', ')}.` : '');
   function applyFocus(out = say) {
-    if (!S.connected || !S.unlocks) return out('Connect to Archipelago first.');
+    if (!S.connected || !S.unlocks) return out(NOT_CONNECTED);
     const c = nextUp(1)[0];
     if (!c) return out('No open check can be focused with the room settings right now.');
     const r = amqApplyLobby(focusWish(c));
     if (r.error) return out(r.error);
-    const parts = [`Room focused on ${c.name}${r.changed ? '' : ' (already set)'}.`];
-    if (r.manual.length) parts.push(`Set by hand: ${r.manual.join(', ')}.`);
-    out(parts.join(' '));
+    out(`Room focused on ${c.name}${r.changed ? '' : ' (already set)'}.` + setByHand(r));
   }
 
   // ---------- hints ----------
@@ -1079,12 +1094,10 @@
     say(`Asked for a hint: ${name}.`);
   }
   function applyLobby(out = say) {
-    if (!S.connected || !S.unlocks) return out('Connect to Archipelago first.');
+    if (!S.connected || !S.unlocks) return out(NOT_CONNECTED);
     const r = amqApplyLobby(lobbyWish());
     if (r.error) return out(r.error);
-    const parts = [r.changed ? `Lobby updated: ${r.done.join(', ')}.` : 'The lobby already matches your unlocks.'];
-    if (r.manual.length) parts.push(`Set by hand: ${r.manual.join(', ')}.`);
-    out(parts.join(' '));
+    out((r.changed ? `Lobby updated: ${r.done.join(', ')}.` : 'The lobby already matches your unlocks.') + setByHand(r));
   }
   function lobbyGuide() {
     const U = S.unlocks;
@@ -1105,12 +1118,12 @@
   }
 
   // ---------- scouting ----------
-  const IMPORTANCE = it => (it.flags & 1 ? 'progression' : it.flags & 2 ? 'useful' : it.flags & 4 ? 'trap' : 'filler');
+  const importance = it => (it.flags & 1 ? 'progression' : it.flags & 2 ? 'useful' : it.flags & 4 ? 'trap' : 'filler');
   /** What a check holds, per the panel's scouting setting, or '' when unknown or hidden. */
   function scoutLabel(id) {
     const it = S.scouts[id];
     if (!it || S.scoutMode === 'off') return '';
-    const kind = IMPORTANCE(it);
+    const kind = importance(it);
     if (S.scoutMode === 'importance') return kind;
     const name = ((S.games[gameOf(it.player)] || {}).items || {})[it.item] || `#${it.item}`;
     const owner = it.player === S.slot ? 'your' : `${playerName(it.player)}'s`;
@@ -1143,84 +1156,108 @@
   function section(id, title, html) {
     return `<details data-id="${id}"${openState[id] ? ' open' : ''}><summary>${title}</summary>${html}</details>`;
   }
+  const option = (current, v, label) => `<option value="${v}"${current === v ? ' selected' : ''}>${label}</option>`;
+  function loginHtml() {
+    return `<input id="ap-url" placeholder="server:port" value="${esc(S.conn.url)}">
+        <input id="ap-slot" placeholder="slot name" value="${esc(S.conn.slot)}">
+        <input id="ap-pw" type="password" placeholder="password (optional)">
+        <button id="ap-go">Connect</button>`;
+  }
+  /** Slot, counters, traps, last song and goal at the top of the panel. */
+  function statusHtml() {
+    const D = S.data, P = S.prog, g = S.game;
+    const done = D.checks.filter(c => S.checked.has(c.id)).length;
+    let h = `<b>${esc(S.slotName)}</b> · checks ${done}/${D.checks.length} · fragments ${S.fragments}/${D.fragments_required}
+        <button id="ap-dc" style="float:right">Disconnect</button><br>
+        <span class="dim">Correct ${P.total} · streak ${g.streak} (best ${g.best}) · encore ${P.encore} · shield ${P.shield}` +
+      `${P.mulligan ? ` · mulligan ${P.mulligan}` : ''}${P.spotlight ? ` · spotlight ${P.spotlight}` : ''}</span><br>`;
+    if (S.offline) h += '<b style="color:#ffd76a">Offline: still counting, checks are sent when the connection is back.</b><br>';
+    const traps = Object.entries(P.traps).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`);
+    if (traps.length) h += `<b style="color:#ff7a7a">Traps: ${traps.join(', ')} songs</b><br>`;
+    if (S.lastSong) h += `<span class="dim">Last song: ${esc(S.lastSong)}</span><br>`;
+    if (D.goal === 'finale') {
+      h += P.finaleDone ? 'Finale: cleared<br>' : S.fragments >= D.fragments_required
+        ? `<b>Finale open:</b> ${D.finale_songs}+ counted songs at ${D.finale_accuracy}% in one game<br>` : '';
+    }
+    const [goalDone, goalTotal] = goalChecks();
+    if (goalTotal) h += `Goal: ${goalDone}/${goalTotal} ${D.goal === 'scholar' ? 'Genre Scholar' : 'song type'} checks<br>`;
+    return h;
+  }
+  function guideSection() {
+    const rows = lobbyGuide().map(([k, v]) => `<tr><td class="dim">${k}</td><td>${esc(v)}</td></tr>`).join('');
+    return section('guide', 'Lobby settings', `<table>${rows}</table><button id="ap-lobby">Apply to room (host only)</button>`);
+  }
+  function nextSection() {
+    const next = nextUp(3);
+    if (!next.length) return section('next', 'Play next', '<span class="dim">No open check can be focused with the room settings right now.</span>');
+    const rows = next.map(c => {
+      const [a, b] = progressOf(c, false);
+      return `<tr><td>${esc(c.name)}</td><td class="dim" style="width:50px">${Math.min(a, b)}/${b}</td></tr>`;
+    }).join('');
+    return section('next', 'Play next', `<table>${rows}</table><button id="ap-focus">Focus room on the first (host only)</button>`);
+  }
+  function hintsSection() {
+    const missing = missingUnlocks();
+    return section('hints', `Hint an unlock (${missing.length})`, missing.length
+      ? missing.map(n => `<button data-hint="${esc(n)}" style="margin:1px">${esc(n)}</button>`).join('') +
+        '<br><span class="dim">Asks the server for a hint (costs hint points like !hint).</span>'
+      : '<span class="dim">You have every unlock.</span>');
+  }
+  /** Open checks, open stages first and closest to done first, with what each holds and what locks it. */
+  function checksSection() {
+    const D = S.data;
+    const open = D.checks.filter(c => !S.checked.has(c.id)).map(c => {
+      const [a, b] = progressOf(c, false);
+      return { c, a: Math.min(a, b), b };
+    }).sort((x, y) => (stageLock(x.c) > 0) - (stageLock(y.c) > 0) || y.a / y.b - x.a / x.b);
+    const stageName = c => ((D.stages || [])[c.stage || 0]) || 'next stage';
+    const rows = open.slice(0, 40).map(({ c, a, b }) => {
+      const lock = stageLock(c);
+      const scout = scoutLabel(c.id), star = S.scouts[c.id] && S.scouts[c.id].flags & 1 && S.scoutMode !== 'off';
+      const note = (scout ? `<br><span class="${star ? 'prog' : 'dim'}">→ ${esc(scout)}</span>` : '') +
+        (lock ? `<br><span class="dim">${esc(stageName(c))}: ${lock} more fragment${lock > 1 ? 's' : ''}</span>` : '');
+      const bar = `<div class="bar"><i style="width:${Math.round(100 * a / b)}%"></i></div>`;
+      return `<tr><td>${esc(c.name)}${note}</td><td style="width:70px">${bar}<span class="dim">${a}/${b}</span></td></tr>`;
+    }).join('');
+    const scoutSelect = '<span class="dim">Show contents</span> <select id="ap-scout">' + option(S.scoutMode, 'items', 'items') +
+      option(S.scoutMode, 'importance', 'importance only') + option(S.scoutMode, 'off', 'nothing') + '</select>';
+    return section('checks', `Open checks (${open.length})`, `${scoutSelect}<table>${rows}</table>`);
+  }
+  function logSection() {
+    const chatSelect = '<span class="dim">Show in AMQ chat</span> <select id="ap-chat">' +
+      option(S.chatMode, 'mine', 'my items, hints, chat') + option(S.chatMode, 'all', 'everything') +
+      option(S.chatMode, 'off', 'nothing') + '</select>';
+    return section('log', 'Log', `<div style="max-height:140px;overflow:auto">${S.log.slice(-25).map(esc).join('<br>')}</div>` +
+      chatSelect + '<br><span class="dim">Type /ap help in AMQ chat for commands.</span>');
+  }
+  function backupSection() {
+    return section('backup', 'Backup', `<textarea id="ap-backup" rows="3" style="width:100%;box-sizing:border-box;color:#000">${esc(backupDraft)}</textarea>` +
+      '<button id="ap-export">Export</button> <button id="ap-import">Import</button>' +
+      '<br><span class="dim">Carries progress and unsent checks to another browser when the server is unreachable.</span>');
+  }
+  /** Wires the panel's buttons and selects after each render. */
+  function bindPanel() {
+    const $ = sel => body.querySelector(sel);
+    const on = (sel, event, fn) => { const el = $(sel); if (el) el[event] = () => fn(el); };
+    on('#ap-go', 'onclick', () => connect($('#ap-url').value, $('#ap-slot').value, $('#ap-pw').value));
+    on('#ap-dc', 'onclick', () => { disconnect(); say('Disconnected.'); });
+    on('#ap-lobby', 'onclick', () => applyLobby());
+    on('#ap-focus', 'onclick', () => applyFocus());
+    on('#ap-export', 'onclick', () => { $('#ap-backup').value = exportState(); say('Exported to the Backup box. Copy it from there.'); });
+    on('#ap-import', 'onclick', () => { const text = $('#ap-backup').value; $('#ap-backup').value = ''; say(importState(text)); });
+    on('#ap-chat', 'onchange', el => { S.chatMode = el.value; save('chat', el.value); });
+    on('#ap-scout', 'onchange', el => { S.scoutMode = el.value; save('scout', el.value); render(); });
+    body.querySelectorAll('[data-hint]').forEach(b => { b.onclick = () => hintItem(b.dataset.hint); });
+  }
   function render() {
     if (!body || panel.style.display !== 'block') return;
     body.querySelectorAll && body.querySelectorAll('details').forEach(d => { openState[d.dataset.id] = d.open; });
     const draft = body.querySelector && body.querySelector('#ap-backup');
     if (draft) backupDraft = draft.value;
-    let h = '';
-    if (!S.connected && !S.offline) {
-      h += `<input id="ap-url" placeholder="server:port" value="${esc(S.conn.url)}">
-        <input id="ap-slot" placeholder="slot name" value="${esc(S.conn.slot)}">
-        <input id="ap-pw" type="password" placeholder="password (optional)">
-        <button id="ap-go">Connect</button>`;
-    } else {
-      const D = S.data, P = S.prog, g = S.game;
-      const done = D.checks.filter(c => S.checked.has(c.id)).length;
-      h += `<b>${esc(S.slotName)}</b> · checks ${done}/${D.checks.length} · fragments ${S.fragments}/${D.fragments_required}
-        <button id="ap-dc" style="float:right">Disconnect</button><br>
-        <span class="dim">Correct ${P.total} · streak ${g.streak} (best ${g.best}) · encore ${P.encore} · shield ${P.shield}` +
-        `${P.mulligan ? ` · mulligan ${P.mulligan}` : ''}${P.spotlight ? ` · spotlight ${P.spotlight}` : ''}</span><br>`;
-      if (S.offline) h += '<b style="color:#ffd76a">Offline: still counting, checks are sent when the connection is back.</b><br>';
-      const traps = Object.entries(P.traps).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`);
-      if (traps.length) h += `<b style="color:#ff7a7a">Traps: ${traps.join(', ')} songs</b><br>`;
-      if (S.lastSong) h += `<span class="dim">Last song: ${esc(S.lastSong)}</span><br>`;
-      if (D.goal === 'finale') {
-        h += P.finaleDone ? 'Finale: cleared<br>' : S.fragments >= D.fragments_required
-          ? `<b>Finale open:</b> ${D.finale_songs}+ counted songs at ${D.finale_accuracy}% in one game<br>` : '';
-      }
-      const [goalDone, goalTotal] = goalChecks();
-      if (goalTotal) h += `Goal: ${goalDone}/${goalTotal} ${D.goal === 'scholar' ? 'Genre Scholar' : 'song type'} checks<br>`;
-      h += section('guide', 'Lobby settings', '<table>' + lobbyGuide().map(([k, v]) => `<tr><td class="dim">${k}</td><td>${esc(v)}</td></tr>`).join('') + '</table>' +
-        '<button id="ap-lobby">Apply to room (host only)</button>');
-      const next = nextUp(3);
-      h += section('next', 'Play next', next.length ? '<table>' + next.map(c => {
-        const [a, b] = progressOf(c, false);
-        return `<tr><td>${esc(c.name)}</td><td class="dim" style="width:50px">${Math.min(a, b)}/${b}</td></tr>`;
-      }).join('') + '</table><button id="ap-focus">Focus room on the first (host only)</button>'
-        : '<span class="dim">No open check can be focused with the room settings right now.</span>');
-      const missing = missingUnlocks();
-      h += section('hints', `Hint an unlock (${missing.length})`, missing.length
-        ? missing.map(n => `<button data-hint="${esc(n)}" style="margin:1px">${esc(n)}</button>`).join('') +
-          '<br><span class="dim">Asks the server for a hint (costs hint points like !hint).</span>'
-        : '<span class="dim">You have every unlock.</span>');
-      const open = D.checks.filter(c => !S.checked.has(c.id)).map(c => {
-        const [a, b] = progressOf(c, false);
-        return { c, a: Math.min(a, b), b };
-      }).sort((x, y) => (stageLock(x.c) > 0) - (stageLock(y.c) > 0) || y.a / y.b - x.a / x.b);
-      const stageName = c => ((D.stages || [])[c.stage || 0]) || 'next stage';
-      const scoutOpt = (v, label) => `<option value="${v}"${S.scoutMode === v ? ' selected' : ''}>${label}</option>`;
-      h += section('checks', `Open checks (${open.length})`, `<span class="dim">Show contents</span> <select id="ap-scout">` +
-        `${scoutOpt('items', 'items')}${scoutOpt('importance', 'importance only')}${scoutOpt('off', 'nothing')}</select>` + '<table>' + open.slice(0, 40).map(({ c, a, b }) => {
-        const lock = stageLock(c);
-        const scout = scoutLabel(c.id), star = S.scouts[c.id] && S.scouts[c.id].flags & 1 && S.scoutMode !== 'off';
-        const note = (scout ? `<br><span class="${star ? 'prog' : 'dim'}">→ ${esc(scout)}</span>` : '') +
-          (lock ? `<br><span class="dim">${esc(stageName(c))}: ${lock} more fragment${lock > 1 ? 's' : ''}</span>` : '');
-        return `<tr><td>${esc(c.name)}${note}</td><td style="width:70px"><div class="bar"><i style="width:${Math.round(100 * a / b)}%"></i></div><span class="dim">${a}/${b}</span></td></tr>`;
-      }).join('') + '</table>');
-    }
-    const chatOpt = (v, label) => `<option value="${v}"${S.chatMode === v ? ' selected' : ''}>${label}</option>`;
-    h += section('log', 'Log', `<div style="max-height:140px;overflow:auto">${S.log.slice(-25).map(esc).join('<br>')}</div>` +
-      `<span class="dim">Show in AMQ chat</span> <select id="ap-chat">${chatOpt('mine', 'my items, hints, chat')}${chatOpt('all', 'everything')}${chatOpt('off', 'nothing')}</select>` +
-      '<br><span class="dim">Type /ap help in AMQ chat for commands.</span>');
-    if (S.data) {
-      h += section('backup', 'Backup', `<textarea id="ap-backup" rows="3" style="width:100%;box-sizing:border-box;color:#000">${esc(backupDraft)}</textarea>` +
-        '<button id="ap-export">Export</button> <button id="ap-import">Import</button>' +
-        '<br><span class="dim">Carries progress and unsent checks to another browser when the server is unreachable.</span>');
-    }
-    body.innerHTML = h;
-    const $ = sel => body.querySelector(sel);
-    const go = $('#ap-go'), dc = $('#ap-dc'), lob = $('#ap-lobby'), chat = $('#ap-chat'), scout = $('#ap-scout');
-    const focus = $('#ap-focus'), exp = $('#ap-export'), imp = $('#ap-import');
-    if (focus) focus.onclick = () => applyFocus();
-    if (exp) exp.onclick = () => { $('#ap-backup').value = exportState(); say('Exported to the Backup box. Copy it from there.'); };
-    if (imp) imp.onclick = () => { const text = $('#ap-backup').value; $('#ap-backup').value = ''; say(importState(text)); };
-    body.querySelectorAll('[data-hint]').forEach(b => { b.onclick = () => hintItem(b.dataset.hint); });
-    if (go) go.onclick = () => connect($('#ap-url').value, $('#ap-slot').value, $('#ap-pw').value);
-    if (dc) dc.onclick = () => { disconnect(); say('Disconnected.'); };
-    if (lob) lob.onclick = () => applyLobby();
-    if (chat) chat.onchange = () => { S.chatMode = chat.value; save('chat', chat.value); };
-    if (scout) scout.onchange = () => { S.scoutMode = scout.value; save('scout', scout.value); render(); };
+    const live = S.connected || S.offline;
+    body.innerHTML = (live ? statusHtml() + guideSection() + nextSection() + hintsSection() + checksSection() : loginHtml()) +
+      logSection() + (S.data ? backupSection() : '');
+    bindPanel();
   }
 
   // ---------- boot ----------

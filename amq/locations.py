@@ -68,11 +68,12 @@ def milestone_name(n: int) -> str:
     return f"Correct Answers: {n}"
 
 
-def build_check_specs(milestone_count: int, milestone_step: int, challenges: bool, multiplayer: bool,
-                      list_checks: bool = False, free_tiers: int = DEFAULT_FREE_RARITY_TIERS,
+def build_check_specs(milestone_count: int, milestone_step: int, *, free_tiers: int = DEFAULT_FREE_RARITY_TIERS,
+                      challenges: bool = False, multiplayer: bool = False, list_checks: bool = False,
                       seasons: bool = False, sample_points: bool = False, categories: bool = False,
                       score: bool = False, dubs: bool = False, quick_draw: bool = False,
                       nexus: bool = False) -> list[CheckSpec]:
+    """Every check for these settings, in a fixed order: a check's id depends on its index within its group."""
     specs: list[CheckSpec] = []
 
     for i in range(milestone_count):
@@ -200,40 +201,43 @@ def build_check_specs(milestone_count: int, milestone_step: int, challenges: boo
 # With song_source: own_list only songs from the player's own anime list count, and a small list may have none of
 # what these checks need. own_list_safety excludes them (filler and traps only) so missing them never blocks anyone.
 LIST_RISK_DECADES = {"1980s & Earlier", "1990s"}
+_WIDE_LIST_RULES = {
+    "type": lambda s: s.key == "Insert Song",
+    "game_types": lambda s: True,
+    "decade": lambda s: s.key in LIST_RISK_DECADES,
+    "genre": lambda s: s.key not in BROAD_GENRES,
+    "format": lambda s: s.key != "Movie",
+    "rarity": lambda s: s.key == "Brutal",
+    "category": lambda s: s.key != "Standard",
+    "score": lambda s: s.key == "Overlooked",
+    "dub": lambda s: True,
+    "years": lambda s: s.n >= 25,
+    "game_decades": lambda s: s.n >= 5,
+    "game_genres": lambda s: s.n >= 10,
+    "nexus": lambda s: True,  # Nexus draws from the whole song database, not your list
+}
 
 
 def needs_wide_list(spec: CheckSpec) -> bool:
     """True if the check may be impossible with a small anime list."""
-    rules = {
-        "type": lambda: spec.key == "Insert Song",
-        "game_types": lambda: True,
-        "decade": lambda: spec.key in LIST_RISK_DECADES,
-        "genre": lambda: spec.key not in BROAD_GENRES,
-        "format": lambda: spec.key != "Movie",
-        "rarity": lambda: spec.key == "Brutal",
-        "category": lambda: spec.key != "Standard",
-        "score": lambda: spec.key == "Overlooked",
-        "dub": lambda: True,
-        "years": lambda: spec.n >= 25,
-        "game_decades": lambda: spec.n >= 5,
-        "game_genres": lambda: spec.n >= 10,
-        "nexus": lambda: True,  # Nexus draws from the whole song database, not your list
-    }
-    return spec.kind in rules and rules[spec.kind]()
+    rule = _WIDE_LIST_RULES.get(spec.kind)
+    return bool(rule and rule(spec))
 
 
 # every optional group switched on: the full location table, so ids never depend on a yaml
-ALL_FLAGS = {"seasons": True, "sample_points": True, "categories": True, "score": True, "dubs": True, "quick_draw": True,
-             "nexus": True}
+ALL_FLAGS = {name: True for name in ("challenges", "multiplayer", "list_checks", "seasons", "sample_points",
+                                     "categories", "score", "dubs", "quick_draw", "nexus")}
+
+
+# every milestone any yaml can produce, and every other check
+MILESTONE_COUNTS = sorted({step * i for step in MILESTONE_STEPS for i in range(1, MAX_MILESTONES + 1)})
+OTHER_CHECKS = build_check_specs(0, 1, **ALL_FLAGS)
 
 
 def _build_ids() -> dict[str, int]:
-    ids: dict[str, int] = {}
-    for step in MILESTONE_STEPS:
-        for i in range(1, MAX_MILESTONES + 1):
-            ids[milestone_name(step * i)] = BASE_ID + step * i
+    ids = {milestone_name(n): BASE_ID + n for n in MILESTONE_COUNTS}
     per_group: dict[str, int] = {}
-    for spec in build_check_specs(0, 1, True, True, True, **ALL_FLAGS):
+    for spec in OTHER_CHECKS:
         index = per_group.get(spec.group, 0)
         assert index < 100, f"group {spec.group} overflowed its id block"
         per_group[spec.group] = index + 1
@@ -243,11 +247,9 @@ def _build_ids() -> dict[str, int]:
 
 LOCATION_NAME_TO_ID = _build_ids()
 
-LOCATION_GROUPS: dict[str, set[str]] = {}
-for _spec in build_check_specs(MAX_MILESTONES, max(MILESTONE_STEPS), True, True, True, **ALL_FLAGS):
-    if _spec.group != "Milestones":
-        LOCATION_GROUPS.setdefault(_spec.group, set()).add(_spec.name)
-LOCATION_GROUPS["Milestones"] = {name for name in LOCATION_NAME_TO_ID if name.startswith("Correct Answers: ")}
+LOCATION_GROUPS: dict[str, set[str]] = {"Milestones": {milestone_name(n) for n in MILESTONE_COUNTS}}
+for _spec in OTHER_CHECKS:
+    LOCATION_GROUPS.setdefault(_spec.group, set()).add(_spec.name)
 
 
 class AMQLocation(Location):

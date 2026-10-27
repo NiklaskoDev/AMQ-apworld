@@ -80,61 +80,71 @@ class AMQWorld(World):
         return slot_data
 
     def generate_early(self) -> None:
-        o = self.options
         passthrough = getattr(self.multiworld, "re_gen_passthrough", {}).get(self.game)
         if passthrough and "tracker" in passthrough:
             for name, value in passthrough["tracker"].items():
-                option = getattr(o, name)
+                option = getattr(self.options, name)
                 option.value = set(value) if isinstance(option, OptionSet) else value
-        self.gated = set(o.unlock_categories.value)
+        self.gated = set(self.options.unlock_categories.value)
         self._fix_difficulty_floors()
         self.starting = self._pick_starting()
+        # Universal Tracker passes the milestone count that generation settled on
+        self._size_pool(grow_milestones=not passthrough)
+        self._warn_own_list_goal()
 
+    def _specs(self, milestones: int) -> list[CheckSpec]:
+        o, gated = self.options, self.gated
+        return build_check_specs(
+            milestones, o.milestone_step.value, free_tiers=o.free_difficulty_tiers.value,
+            challenges=bool(o.challenge_checks), multiplayer=bool(o.multiplayer_checks),
+            list_checks=o.song_source.value == SongSource.option_mixed, seasons=bool(o.season_checks),
+            sample_points="Sample Point" in gated, categories="Song Category" in gated, score="Anime Score" in gated,
+            dubs="Dub & Rebroadcast" in gated, quick_draw=bool(o.quick_draw_checks), nexus=bool(o.nexus_checks))
+
+    def _size_pool(self, grow_milestones: bool) -> None:
+        """Picks the checks and the number of fragments so that every unlock and fragment has a check that can
+        hold it. Excluded checks only take filler, so they don't count toward that."""
+        o = self.options
+        unlocks = len(self._unlock_items())
         required = o.fragments_required.value
         extra = math.ceil(required * o.fragment_extra_percent.value / 100)
-        needed = len(self._unlock_items()) + required + extra
-
-        def specs_for(milestones: int) -> list[CheckSpec]:
-            return build_check_specs(milestones, o.milestone_step.value, bool(o.challenge_checks),
-                                     bool(o.multiplayer_checks), o.song_source.value == SongSource.option_mixed,
-                                     o.free_difficulty_tiers.value, bool(o.season_checks),
-                                     "Sample Point" in self.gated, "Song Category" in self.gated,
-                                     "Anime Score" in self.gated, "Dub & Rebroadcast" in self.gated,
-                                     bool(o.quick_draw_checks), bool(o.nexus_checks))
 
         milestones = o.milestone_count.value
-        self.specs = specs_for(milestones)
-        # excluded checks can only take filler, so they don't count toward fitting the unlocks and fragments
-        while (len(self.specs) < needed + len(self._excluded(self.specs)) and milestones < MAX_MILESTONES
-               and not passthrough):
+        self.specs = self._specs(milestones)
+        while (grow_milestones and milestones < MAX_MILESTONES
+               and len(self.specs) < unlocks + required + extra + len(self._excluded(self.specs))):
             milestones += 1
-            self.specs = specs_for(milestones)
+            self.specs = self._specs(milestones)
         self.excluded = self._excluded(self.specs)
         if milestones != o.milestone_count.value:
             logger.warning(f"{self.player_name}: raised milestone_count from {o.milestone_count.value} to "
                            f"{milestones} so the item pool fits.")
             o.milestone_count.value = milestones
 
-        spare = len(self.specs) - len(self.excluded) - len(self._unlock_items()) - required
+        spare = len(self.specs) - len(self.excluded) - unlocks - required
         if spare < extra:
             # only when milestones hit MAX_MILESTONES, e.g. many fragments plus many excluded checks
             logger.warning(f"{self.player_name}: only room for {max(0, spare)} extra fragments.")
             extra = max(0, spare)
         self.fragment_total = required + extra
 
-        if o.song_source.value == SongSource.option_own_list and o.goal.current_key in GOAL_KINDS:
-            what = {"scholar": "every Genre Scholar check", "specialist": "Insert Song checks"}[o.goal.current_key]
-            logger.warning(f"{self.player_name}: the {o.goal.current_key} goal needs {what}; with song_source "
-                           f"own_list, make sure your anime list has the songs for them.")
+    def _own_list(self) -> bool:
+        return self.options.song_source.value == SongSource.option_own_list
+
+    def _warn_own_list_goal(self) -> None:
+        goal = self.options.goal.current_key
+        if self._own_list() and goal in GOAL_KINDS:
+            what = {"scholar": "every Genre Scholar check", "specialist": "Insert Song checks"}[goal]
+            logger.warning(f"{self.player_name}: the {goal} goal needs {what}; with song_source own_list, make sure "
+                           f"your anime list has the songs for them.")
 
     def _excluded(self, specs: list[CheckSpec]) -> set[str]:
         """Checks that may only hold filler: the player's exclude_locations, and with own_list_safety the checks a
         small anime list may not be able to reach."""
-        o = self.options
         names: set[str] = set()
-        for name in o.exclude_locations.value:
+        for name in self.options.exclude_locations.value:
             names |= LOCATION_GROUPS.get(name, {name})
-        if o.song_source.value == SongSource.option_own_list and o.own_list_safety:
+        if self._own_list() and self.options.own_list_safety:
             names |= {s.name for s in specs if needs_wide_list(s)}
         return names & {s.name for s in specs}
 
@@ -253,13 +263,16 @@ class AMQWorld(World):
             self.multiworld.push_precollected(self.create_item(CATEGORY_ITEMS["Standard"]))
 
         pool = self._unlock_items() + [FRAGMENT] * self.fragment_total
-        filler = len(self.specs) - len(pool)
+        pool += self._filler(len(self.specs) - len(pool))
+        self.multiworld.itempool += [self.create_item(n) for n in pool]
+
+    def _filler(self, count: int) -> list[str]:
+        """Traps and boosts for the remaining checks. Excluded checks only take filler and traps, and most boosts
+        are useful items, so Hype Cheers replace boosts until the excluded checks are covered."""
         weights = {t: w for t, w in self.options.trap_weights.value.items() if t in TRAPS and w > 0}
-        trap_count = round(filler * self.options.trap_percentage.value / 100) if weights else 0
-        if trap_count:
-            pool += self.random.choices(list(weights), list(weights.values()), k=trap_count)
-        boosts = [self.get_filler_item_name() for _ in range(filler - trap_count)]
-        # excluded checks only take filler and traps, and most boosts are useful: swap in Hype Cheers where short
+        trap_count = round(count * self.options.trap_percentage.value / 100) if weights else 0
+        traps = self.random.choices(list(weights), list(weights.values()), k=trap_count) if trap_count else []
+        boosts = [self.get_filler_item_name() for _ in range(count - trap_count)]
         short = len(self.excluded) - trap_count - boosts.count(CHEER)
         for i, name in enumerate(boosts):
             if short <= 0:
@@ -267,9 +280,7 @@ class AMQWorld(World):
             if name != CHEER:
                 boosts[i] = CHEER
                 short -= 1
-        pool += boosts
-
-        self.multiworld.itempool += [self.create_item(n) for n in pool]
+        return traps + boosts
 
     def set_rules(self) -> None:
         self.multiworld.completion_condition[self.player] = lambda state: state.has("Victory", self.player)
@@ -303,7 +314,10 @@ class AMQWorld(World):
             "trap_link": bool(o.trap_link),
             "ring_link": bool(o.ring_link),
             "ring_link_rate": o.ring_link_rate.value,
-            "tracker": {name: (sorted(getattr(o, name).value) if isinstance(getattr(o, name), OptionSet)
-                               else getattr(o, name).value) for name in TRACKER_OPTIONS},
+            "tracker": {name: self._option_value(name) for name in TRACKER_OPTIONS},
             "checks": [s.client_dict(LOCATION_NAME_TO_ID[s.name]) for s in self.specs],
         }
+
+    def _option_value(self, name: str) -> Any:
+        option = getattr(self.options, name)
+        return sorted(option.value) if isinstance(option, OptionSet) else option.value
