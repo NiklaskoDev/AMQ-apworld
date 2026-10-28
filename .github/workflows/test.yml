@@ -27,6 +27,12 @@ jobs:
       - name: World tests
         working-directory: ap
         run: python -m pytest worlds/amq -q
+      - name: Refactoring tools still run
+        working-directory: ap
+        run: |
+          python ../tools/snapshot_world.py "$RUNNER_TEMP/snapshot.json"
+          node ../tools/trace_client.mjs ../client/amq_archipelago.user.js "$RUNNER_TEMP/snapshot.json" "$RUNNER_TEMP/trace.json"
+          python ../tools/diff_json.py "$RUNNER_TEMP/trace.json" "$RUNNER_TEMP/trace.json"
       - name: Versions agree
         run: python release.py check
       - name: Build apworld

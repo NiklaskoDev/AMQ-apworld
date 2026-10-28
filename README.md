@@ -33,6 +33,7 @@ setup: [`amq/docs/setup_en.md`](amq/docs/setup_en.md) · [changelog](CHANGELOG.m
 
 * `amq/`: the world (`python build.py` packs it into `amq.apworld` for `custom_worlds/`)
 * `release.py`: version and release-notes checks used by CI
+* `tools/`: before/after checks for refactoring (see below)
 * `client/amq_archipelago.user.js`: the userscript client
 * `client/test/`: client tests (an offline suite, plus an end-to-end script for a real server)
 
@@ -59,6 +60,36 @@ AP_SERVER=ws://127.0.0.1:38281 AP_SLOT=Quizzer AP_CONSOLE=/path/to/fifo node cli
 ```
 
 CI runs the world tests against Archipelago 0.6.7 and `main`, builds the apworld and runs the client suite.
+
+## Checking a refactor
+
+The tests check behaviour; these tools check that a change meant to alter nothing really alters nothing. Both write
+JSON that is the same every run for the same code, so compare a run before the change with one after:
+
+* `tools/snapshot_world.py` generates 8 option sets with 4 seeds each and records item placements, excluded checks,
+  starting items, slot data, descriptions, ids and groups. Run it from an Archipelago checkout whose `worlds/amq`
+  links to this repo's `amq`.
+* `tools/trace_client.mjs` plays a scripted 150-song session per seed of a snapshot through the userscript, with AMQ,
+  the clock and randomness mocked, and records every message sent, the log, AMQ chat, progress, lobby changes and the
+  rendered panel. Give the old and the new userscript the same snapshot.
+* `tools/diff_json.py` says whether two outputs are identical and, if not, where they differ.
+
+```sh
+# in the Archipelago checkout, before the change
+SKIP_REQUIREMENTS_UPDATE=1 python /path/to/repo/tools/snapshot_world.py /tmp/before.json
+# make the change, then
+SKIP_REQUIREMENTS_UPDATE=1 python /path/to/repo/tools/snapshot_world.py /tmp/after.json
+python /path/to/repo/tools/diff_json.py /tmp/before.json /tmp/after.json
+
+# in this repo: the committed userscript against the edited one
+git show HEAD:client/amq_archipelago.user.js > /tmp/old.user.js
+node tools/trace_client.mjs /tmp/old.user.js /tmp/before.json /tmp/old-trace.json
+node tools/trace_client.mjs client/amq_archipelago.user.js /tmp/before.json /tmp/new-trace.json
+python tools/diff_json.py /tmp/old-trace.json /tmp/new-trace.json
+```
+
+A change that is meant to alter behaviour shows up as differences, which is a quick way to see everything it touches.
+CI runs the tools on every push so they keep working.
 
 ## Releasing
 
