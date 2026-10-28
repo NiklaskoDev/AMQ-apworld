@@ -4,6 +4,24 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
+## [0.10.0] - 2026-10-28
+
+Client version 7: seeds made with this version need the new userscript (an older one warns that it needs an
+update). Every seed generates differently, because Liner Notes joined the filler items.
+
+### Added
+- `Seasons` as an optional unlock category: you start with `starting_seasons` random airing seasons (default 2) and
+  Season Passes unlock the rest. With `season_checks`, the season checks need their passes. The room settings can't
+  filter by season, so the lobby guide lists your seasons without changing the room. The Sweaty preset locks it.
+- The `completionist` goal: the fragments plus `completion_percentage` percent of your checks (default 70). The
+  count leaves out checks that only hold filler (`exclude_locations`, `own_list_safety`), but sending them still
+  counts toward it.
+- Liner Notes, a filler item: a free hint for one of your open checks, picking another player's progression item
+  first. If nothing is worth hinting yet, it is kept until something is.
+- Client: an open check that is out of logic says which unlocks it waits for (for example `needs Decade Pass:
+  1990s` or `Genres: 3 more`) and is listed after the checks you can do now. Slot data gives each check the
+  unlocks its rule needs.
+
 ## [0.9.0] - 2026-10-27
 
 Client version 6 (unchanged; the userscript only gets a new version number). Seeds with `song_source: own_list`

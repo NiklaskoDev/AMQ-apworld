@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from .items import (
-    CATEGORY_ITEMS, CHEER, CLOCK, DECADE_ITEMS, DUB, ENCORE, FORMAT_ITEMS, FRAGMENT, GENRE_ITEMS, LENS, MULLIGAN,
-    REBROADCAST, SAMPLE_ITEMS, SCORE_LENS, SHIELD, SONG_TYPE_ITEMS, SPOTLIGHT,
+    CATEGORY_ITEMS, CHEER, CLOCK, DECADE_ITEMS, DUB, ENCORE, FORMAT_ITEMS, FRAGMENT, GENRE_ITEMS, LENS, LINER_NOTES,
+    MULLIGAN, REBROADCAST, SAMPLE_ITEMS, SCORE_LENS, SEASON_ITEMS, SHIELD, SONG_TYPE_ITEMS, SPOTLIGHT,
 )
 from .locations import LOCATION_NAME_TO_ID, MILESTONE_COUNTS, OTHER_CHECKS, CheckSpec, milestone_name
 
@@ -26,6 +26,7 @@ ITEM_DESCRIPTIONS: dict[str, str] = {
     FORMAT_ITEMS["TV"]: "Songs from TV anime count toward your checks. Always open.",
     **{item: f"Songs played at the {p} sample point count toward your checks." for p, item in SAMPLE_ITEMS.items()},
     **{item: f"{c} songs count toward your checks." for c, item in CATEGORY_ITEMS.items()},
+    **{item: f"Songs from anime that aired in {s} count toward your checks." for s, item in SEASON_ITEMS.items()},
     LENS: "Opens the next harder song-difficulty tier (by community guess rate): Hard, then Brutal by default.",
     SCORE_LENS: "Opens songs from lower-scored anime: Mixed (6-7), then Overlooked (below 6).",
     DUB: "Dubbed songs count toward your checks.",
@@ -37,6 +38,7 @@ ITEM_DESCRIPTIONS: dict[str, str] = {
     CHEER: "+2 milestone progress, and every active timed trap ends one song sooner.",
     MULLIGAN: "Your next eligible miss is forgiven as if the song never played.",
     SPOTLIGHT: "Your next counted answer counts twice toward its category checks.",
+    LINER_NOTES: "Hints one of your open checks that holds an important item for another player, at no hint cost.",
     "Mute Trap": "Mutes the audio for a few songs.",
     "Reverse Typing Trap": "The answer box shows your text backwards for a few songs.",
     "Tiny Text Trap": "The answer box text becomes tiny for a few songs.",
@@ -50,8 +52,9 @@ ITEM_DESCRIPTIONS: dict[str, str] = {
     "Format Pass": "Unlocks an anime format. TV is always open.",
     "Sample Pass": "Unlocks a sample point of the room settings. Start is always open.",
     "Song Category": "Unlocks a song category. Standard is always open.",
+    "Season Pass": "Unlocks the songs of an airing season.",
     "Traps": "Cosmetic traps applied by the userscript. They never change your answers.",
-    "Boosts": "One-shot helpers for milestones, streaks and category checks.",
+    "Boosts": "One-shot helpers for milestones, streaks and category checks, and free hints.",
 }
 
 LOCATION_GROUP_DESCRIPTIONS: dict[str, str] = {
@@ -64,7 +67,7 @@ LOCATION_GROUP_DESCRIPTIONS: dict[str, str] = {
     "Streaks": "Correct answers in a row.",
     "Challenges": "Single-game challenges: flawless starts, accuracy, long games and variety.",
     "Comebacks": "Recovering from misses.",
-    "Seasons": "Correct songs from each airing season.",
+    "Seasons": "Correct songs from each airing season (they need Season Passes with Seasons locked).",
     "Sample Points": "Correct songs at each sample point (only with Sample Point locked).",
     "Song Categories": "Correct songs of each song category (only with Song Category locked).",
     "Anime Score": "Correct songs by the anime's score (only with Anime Score locked).",

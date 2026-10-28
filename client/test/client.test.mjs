@@ -9,7 +9,8 @@ const ITEMS = {
   'Mute Trap': 90, 'Reverse Typing Trap': 91, 'Tiny Text Trap': 92, 'Streak Wipe Trap': 93, 'Tax Collector Trap': 94,
   'Mulligan': 83, 'Spotlight': 84, 'Blind Trap': 95, 'Song Category: Standard': 100, 'Song Category: Instrumental': 101,
   'Song Category: Chanting': 102, 'Song Category: Character': 103, 'Progressive Score Lens': 110, 'Dub Pass': 111,
-  'Rebroadcast Pass': 112,
+  'Rebroadcast Pass': 112, 'Liner Notes': 85, 'Season Pass: Winter': 120, 'Season Pass: Spring': 121,
+  'Season Pass: Summer': 122, 'Season Pass: Fall': 123,
 };
 const CHECKS = [
   { id: 1010, name: 'Correct Answers: 10', kind: 'total', n: 10, stage: 0 },
@@ -962,4 +963,91 @@ test('the panel renders the new sections, and its status view while offline', as
   ws.close();
   assert.match(html(), /Offline: still counting/);
   clearTimeout(S.retryTimer);
+});
+
+test('seasons gated: locked seasons are ignored until their pass, and show in the guide and hints', async () => {
+  const { ws, fire, S, api } = await connected({ slot: { gated: [...ALL_GATES, 'Seasons'], checks: [...CHECKS, ...SEASON_CHECKS] },
+    start: [...START, 'Season Pass: Spring'] });
+  fire('answer results', answer({ season: 'Fall' }));
+  assert.match(S.lastSong, /Fall locked/);
+  fire('answer results', answer({ season: 'Spring' }));
+  assert.match(S.lastSong, /· Spring → counted/);
+  fire('answer results', answer({ extra: { vintage: '2005' } }));
+  assert.match(S.lastSong, /unknown season/);
+  assert.equal(S.prog.total, 1);
+  assert.deepEqual([...api.lobbyGuide().find(([k]) => /Seasons/.test(k))], ['Seasons (not a room filter)', 'Spring']);
+  const missing = [...api.missingUnlocks()];
+  assert.ok(missing.includes('Season Pass: Fall') && !missing.includes('Season Pass: Spring'));
+  ws.server([{ cmd: 'ReceivedItems', index: 5, items: items(['Season Pass: Fall']) }]);
+  fire('answer results', answer({ season: 'Fall' }));
+  fire('answer results', answer({ season: 'Fall' }));
+  assert.ok(sentChecks(ws).includes(2900));
+});
+
+test('seasons are open unless gated', async () => {
+  const { fire, S, api } = await connected();
+  fire('answer results', answer({ season: 'Fall' }));
+  assert.equal(S.prog.total, 1);
+  assert.ok(!api.lobbyGuide().some(([k]) => /Seasons/.test(k)));
+  assert.ok(!api.missingUnlocks().some(n => n.startsWith('Season Pass')));
+});
+
+test('completionist goal counts every sent check, also collected remotely, once the fragments are in', async () => {
+  const { ws, fire, S } = await connected({ slot: { goal: 'completionist', goal_count: 3 } });
+  for (let i = 0; i < 3; i++) fire('answer results', answer());
+  assert.deepEqual(sentChecks(ws).sort(), [2000, 2500]);
+  ws.server([{ cmd: 'RoomUpdate', checked_locations: [2700] }]);
+  assert.equal(ws.take('StatusUpdate').length, 0, 'the fragments are still missing');
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(Array(4).fill('Mixtape Fragment')) }]);
+  assert.deepEqual(ws.take('StatusUpdate').map(m => m.status), [30]);
+  S.data.goal_count = 99;
+  assert.equal(S.goalSent, true, 'sent once');
+});
+
+test('locked checks name the unlocks they wait for and sort after the open ones', async () => {
+  const LOCKED = [
+    { id: 2101, name: 'Decade Dive: 1990s x1', kind: 'decade', key: '1990s', n: 1, stage: 0,
+      needs: [{ category: 'Decades', items: ['Decade Pass: 1990s'], n: 1 }] },
+    { id: 2405, name: 'Brutal Guess-Rate Songs x1', kind: 'rarity', key: 'Brutal', n: 1, stage: 0,
+      needs: [{ category: 'Rarity', items: ['Progressive Rarity Lens'], n: 2 }] },
+    { id: 2610, name: 'Triple Threat', kind: 'game_types', n: 3, stage: 0,
+      needs: [{ category: 'Song Types', items: ['Opening Pass', 'Ending Pass', 'Insert Song Pass'], n: 3 }] },
+    { id: 2611, name: 'Time Capsule: 3 Decades in One Game', kind: 'game_decades', n: 3, stage: 0,
+      needs: [{ category: 'Decades', items: ['Decade Pass: 1980s & Earlier', 'Decade Pass: 1990s', 'Decade Pass: 2000s'], n: 2 }] },
+  ];
+  const { ws, api, S, sandbox } = await connected({ slot: { checks: [...CHECKS, ...LOCKED] } });
+  const needs = id => [...api.missingNeeds(S.data.checks.find(c => c.id === id))];
+  assert.deepEqual(needs(2101), ['Decade Pass: 1990s']);
+  assert.deepEqual(needs(2405), ['2 more Progressive Rarity Lens']);
+  assert.deepEqual(needs(2610), ['Ending Pass, Insert Song Pass']);
+  assert.deepEqual(needs(2611), ['Decades: 1 more']);
+  assert.deepEqual(needs(2000), [], 'checks without requirements are never locked');
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Progressive Rarity Lens', 'Decade Pass: 1980s & Earlier']) }]);
+  assert.deepEqual(needs(2405), ['1 more Progressive Rarity Lens']);
+  assert.deepEqual(needs(2611), [], 'two of the three decades are enough');
+  api.open();
+  const html = sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  assert.match(html, /needs Decade Pass: 1990s/);
+  assert.ok(html.indexOf('Time Capsule') < html.indexOf('Decade Dive: 1990s'), 'checks in logic come first');
+});
+
+test('liner notes hint an open check holding another player\'s progression item, or wait for one', async () => {
+  const { ws, S } = await connected();
+  ws.take('LocationScouts');
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Liner Notes']) }]);
+  assert.equal(ws.take('CreateHints').length, 0, 'nothing scouted yet');
+  assert.equal(S.prog.linerNotes, 1);
+  ws.server([{ cmd: 'LocationInfo', locations: [
+    { item: 80, location: 2500, player: 1, flags: 2 },
+    { item: 5, location: 2601, player: 2, flags: 1 },
+    { item: 70, location: 1010, player: 1, flags: 1 },
+  ] }]);
+  assert.deepEqual(ws.take('CreateHints').map(m => [...m.locations]), [[2601]]);
+  assert.equal(S.prog.linerNotes, 0);
+  assert.match(S.log.at(-1), /Liner Notes: hinted Flawless Start: First 10 Songs for Friend\./);
+  ws.server([{ cmd: 'ReceivedItems', index: 5, items: items(['Liner Notes', 'Liner Notes']) }]);
+  assert.deepEqual(ws.take('CreateHints').map(m => [...m.locations]), [[1010]],
+    'then your own progression; an already noted check is skipped and the second note is kept');
+  assert.equal(S.prog.linerNotes, 1);
+  assert.deepEqual([...S.prog.noted], [2601, 1010]);
 });

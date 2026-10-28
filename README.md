@@ -15,13 +15,15 @@ seasons, comebacks, marathons and optional multiplayer placements. `song_source`
 only songs from their own anime list (strict, with the checks a small list may not reach holding only filler), or
 a mix with extra on-list/off-list checks. The difficulty tier
 boundaries and how many tiers start unlocked are configurable too, and the optional Guess Time and Sample Point categories
-lock the room's timer and sample point too, and Song Category, Anime Score and Dub & Rebroadcast can be locked as well.
+lock the room's timer and sample point too, and Song Category, Anime Score, Dub & Rebroadcast and the airing season can
+be locked as well.
 Quick Draw checks reward fast answers, Year Collector many different years, and optional Nexus checks the solo mode.
-Goals: fragments, a finale game, every Genre Scholar check or every song type check. Trap Link, Ring Link, Death Link
+Goals: fragments, a finale game, every Genre Scholar check, every song type check or a percentage of all checks. Trap Link, Ring Link, Death Link
 (miss streak or poor game, with amnesty), option presets and Universal Tracker are supported. Mixtape Fragments open
 later stages and the Grand Finale. Traps (mute, reversed or tiny answer box, hidden clip, streak wipe, tax) are cosmetic
 and applied by the userscript. The userscript can apply your unlocks to the room settings in one click or focus the
-room on the open check closest to done, shows what each open check holds, hints missing unlocks in one click, keeps
+room on the open check closest to done, shows what each open check holds and which unlocks a locked one waits for,
+hints missing unlocks in one click, spends Liner Notes items on free hints for other players' items, keeps
 counting while offline, and bridges multiworld chat into AMQ's chat (`/ap !hint ...` works from there).
 
 Download `amq.apworld` and the userscript from the [latest release](https://github.com/niklaskodev/amq-apworld/releases/latest).
@@ -66,7 +68,7 @@ CI runs the world tests against Archipelago 0.6.7 and `main`, builds the apworld
 The tests check behaviour; these tools check that a change meant to alter nothing really alters nothing. Both write
 JSON that is the same every run for the same code, so compare a run before the change with one after:
 
-* `tools/snapshot_world.py` generates 8 option sets with 4 seeds each and records item placements, excluded checks,
+* `tools/snapshot_world.py` generates 9 option sets with 4 seeds each and records item placements, excluded checks,
   starting items, slot data, descriptions, ids and groups. Run it from an Archipelago checkout whose `worlds/amq`
   links to this repo's `amq`.
 * `tools/trace_client.mjs` plays a scripted 150-song session per seed of a snapshot through the userscript, with AMQ,

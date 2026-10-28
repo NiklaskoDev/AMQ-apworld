@@ -9,7 +9,7 @@ from .items import TRAPS
 
 GATING_CATEGORIES = ["Song Types", "Decades", "Genres", "Formats", "Rarity"]
 # valid, but not locked unless asked for
-OPTIONAL_CATEGORIES = ["Guess Time", "Sample Point", "Song Category", "Anime Score", "Dub & Rebroadcast"]
+OPTIONAL_CATEGORIES = ["Guess Time", "Sample Point", "Song Category", "Anime Score", "Dub & Rebroadcast", "Seasons"]
 
 
 class Goal(Choice):
@@ -17,12 +17,14 @@ class Goal(Choice):
     Fragments: collect the required Mixtape Fragments.
     Finale: collect the fragments, then also win one "finale" game (see finale_songs / finale_accuracy).
     Scholar: collect the fragments and complete every Genre Scholar check.
-    Specialist: collect the fragments and complete every song type check (First Correct and Specialist)."""
+    Specialist: collect the fragments and complete every song type check (First Correct and Specialist).
+    Completionist: collect the fragments and send completion_percentage percent of your checks."""
     display_name = "Goal"
     option_fragments = 0
     option_finale = 1
     option_scholar = 2
     option_specialist = 3
+    option_completionist = 4
     default = 1
 
 
@@ -40,6 +42,16 @@ class FragmentExtraPercent(Range):
     range_start = 0
     range_end = 100
     default = 25
+
+
+class CompletionPercentage(Range):
+    """With the Completionist goal, the percentage of your checks to send. Checks that only hold filler (your
+    exclude_locations, own_list_safety) still count when you send them, but the requirement is taken from the
+    others, so it never depends on them."""
+    display_name = "Completion Percentage"
+    range_start = 10
+    range_end = 100
+    default = 70
 
 
 class FinaleSongs(Range):
@@ -73,8 +85,11 @@ class UnlockCategories(OptionSet):
     open 6-7 and then everything below, each tier with its own checks.
     Dub & Rebroadcast (not in the default) ignores dub and rebroadcast songs until you find the Dub Pass and
     Rebroadcast Pass, and adds checks for both.
-    The last three rely on fields the client reads from AMQ's song data; if it cannot read them, songs count anyway
-    and that category's checks cannot progress."""
+    Seasons (not in the default) locks the airing season (Winter, Spring, Summer, Fall): you start with
+    starting_seasons of them and Season Passes unlock the rest. With season_checks, the season checks need their
+    passes. The room settings can't filter by season, so songs from locked seasons are simply ignored.
+    Song Category, Anime Score and Dub & Rebroadcast rely on fields the client reads from AMQ's song data; if it
+    cannot read them, songs count anyway and that category's checks cannot progress."""
     display_name = "Unlock Categories"
     valid_keys = frozenset(GATING_CATEGORIES + OPTIONAL_CATEGORIES)
     default = frozenset(GATING_CATEGORIES)
@@ -188,6 +203,14 @@ class StartingGenres(Range):
     default = 4
 
 
+class StartingSeasons(Range):
+    """How many random airing seasons you begin with (only matters if Seasons are locked)."""
+    display_name = "Starting Seasons"
+    range_start = 1
+    range_end = 3
+    default = 2
+
+
 class MilestoneCount(Range):
     """Number of cumulative "Correct Answers" checks. Raised automatically if the item pool would not fit."""
     display_name = "Milestone Count"
@@ -210,7 +233,8 @@ class ChallengeChecks(DefaultOnToggle):
 
 
 class SeasonChecks(DefaultOnToggle):
-    """Add checks for the season an anime aired in (Winter, Spring, Summer, Fall). Seasons are never locked."""
+    """Add checks for the season an anime aired in (Winter, Spring, Summer, Fall). They need Season Passes only if
+    Seasons are in unlock_categories."""
     display_name = "Season Checks"
 
 
@@ -316,12 +340,14 @@ class AMQOptions(PerGameCommonOptions):
     goal: Goal
     fragments_required: FragmentsRequired
     fragment_extra_percent: FragmentExtraPercent
+    completion_percentage: CompletionPercentage
     finale_songs: FinaleSongs
     finale_accuracy: FinaleAccuracy
     unlock_categories: UnlockCategories
     starting_song_type: StartingSongType
     starting_decades: StartingDecades
     starting_genres: StartingGenres
+    starting_seasons: StartingSeasons
     song_source: SongSource
     own_list_safety: OwnListSafety
     easy_floor: EasyFloor
@@ -353,9 +379,10 @@ class AMQOptions(PerGameCommonOptions):
 
 
 OPTION_GROUPS = [
-    OptionGroup("Goal", [Goal, FragmentsRequired, FragmentExtraPercent, FinaleSongs, FinaleAccuracy]),
+    OptionGroup("Goal", [Goal, FragmentsRequired, FragmentExtraPercent, CompletionPercentage, FinaleSongs,
+                         FinaleAccuracy]),
     OptionGroup("Unlocks", [UnlockCategories, SongSource, OwnListSafety, StartingSongType, StartingDecades,
-                            StartingGenres]),
+                            StartingGenres, StartingSeasons]),
     OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers, GuessTimeStart, GuessTimeStep,
                                GuessTimeItems]),
     OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, SeasonChecks, QuickDrawChecks, NexusChecks,

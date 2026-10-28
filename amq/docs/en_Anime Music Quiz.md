@@ -27,6 +27,7 @@ Items are unlocks that live in the multiworld:
 * **Song Category passes**: Instrumental, Chanting, Character (only with `Song Category`, see below)
 * **Progressive Score Lens** (only with `Anime Score`, see below)
 * **Dub Pass** and **Rebroadcast Pass** (only with `Dub & Rebroadcast`, see below)
+* **Season Passes**: Winter, Spring, Summer, Fall (only with `Seasons`, see below)
 
 You start with one song type (Opening by default), two neighbouring decades, four genres (at least one of them broad)
 and TV. Categories you leave out of `unlock_categories` are simply always open.
@@ -111,12 +112,20 @@ reads from AMQ but that has not been checked against the live site yet. If it ca
 the client says so once in the panel log, and that category's checks can't progress. If that happens, please report
 it together with `AMQAP.state.lastPayload.songInfo` from the browser console.
 
+## Seasons
+
+Add `Seasons` to `unlock_categories` (not in the default) to lock the airing season: you start with
+`starting_seasons` random seasons (default 2) and Season Passes unlock the others. Songs from a locked season are
+ignored. The room settings can't filter by season (the vintage setting is one range of years), so the lobby guide
+lists your seasons without changing the room, and Apply to room leaves them alone. With `season_checks` on, each
+season's check needs its pass and Four Seasons needs all four.
+
 ## Presets
 
 The options page offers presets: **Casual** (fragments goal, more free tiers and starting unlocks, fewer traps),
-**Watched-only Strict** (`own_list` with only the broad filters locked), **Sweaty** (guess time and sample point
-locked, one free difficulty tier, a long and accurate finale, more traps) and **Short Async** (fewer fragments and
-milestones, no season or quick draw checks).
+**Watched-only Strict** (`own_list` with only the broad filters locked), **Sweaty** (guess time, sample point and
+seasons locked, one free difficulty tier, a long and accurate finale, more traps) and **Short Async** (fewer fragments
+and milestones, no season or quick draw checks).
 
 ## Stages
 
@@ -142,7 +151,7 @@ Everything is detected from songs you answer in the real game:
 * Variety challenges: Triple Threat (all three song types in one game), Time Capsule (several decades),
   Genre Sampler (several genres)
 * Seasons (`season_checks`, on by default): 10 correct songs from each airing season (Winter, Spring, Summer, Fall)
-  and Four Seasons (all four in one game). Seasons are never locked by items.
+  and Four Seasons (all four in one game). They need Season Passes only with `Seasons` locked.
 * Comebacks (with `challenge_checks`): Bounce Back (correct answers right after a miss), Comeback (5 in a row after
   missing 3 in a row in one game) and Strong Finish (end a game on a 5- or 10-song streak)
 * Sample points (only with `Sample Point` locked): 10 correct songs at each sample point
@@ -166,6 +175,9 @@ three in five of them didn't count, it warns you once in AMQ's chat and names th
   accuracy and Death Link are untouched. It is used before a Streak Shield.
 * **Spotlight**: your next counted answer counts twice toward its category checks (song type, decade, genre,
   format, difficulty, season and so on). Encore Ticket does the same for milestones, and both can apply at once.
+* **Liner Notes**: a free hint. The client picks one of your open checks that holds another player's progression
+  item (if there is none, your own progression item, then another player's useful item) and hints it, so its owner
+  learns where it is. It costs no hint points. A Liner Notes with nothing worth hinting is kept until there is.
 
 ## Traps
 
@@ -183,6 +195,10 @@ Traps are cosmetic. They never touch your answers or the game itself.
 The client asks the server what each open check holds (without creating hints) and shows it under the check in the
 panel, for example `→ Friend's Hookshot (progression)`. Choose "importance only" or "nothing" in the Open checks
 section if you'd rather not know.
+
+A check that is out of logic says which unlocks it is waiting for, for example `needs Decade Pass: 1990s`,
+`1 more Progressive Rarity Lens` or `Genres: 3 more` (any three genres you don't have yet). Those checks are listed
+after the ones you can do now.
 
 ## AMQ chat
 
@@ -246,8 +262,13 @@ Every goal needs the required Mixtape Fragments. On top of that:
 | `finale` (default) | one finale game: at least `finale_songs` counted songs at `finale_accuracy` percent or better |
 | `scholar` | every Genre Scholar check (so every Genre Key, if genres are locked) |
 | `specialist` | every song type check: First Correct and both Specialist checks for Opening, Ending and Insert Song |
+| `completionist` | `completion_percentage` percent of your checks (default 70) |
 
 The panel shows how many of the goal's checks are done. Checks collected by another client also count.
+
+For `completionist`, the number of checks needed is the percentage of the checks that may hold progression, so the
+checks that only hold filler (your `exclude_locations`, and those `own_list_safety` excludes) never raise it. They
+still count toward it when you send them.
 
 ## Universal Tracker
 

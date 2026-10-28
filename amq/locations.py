@@ -8,14 +8,13 @@ from BaseClasses import Location
 from .items import (
     BASE_ID, BROAD_GENRES, CATEGORY_ITEMS, DECADES, DECADE_ITEMS, DEFAULT_FREE_RARITY_TIERS, DUB, FORMATS, FORMAT_ITEMS,
     FREE_SCORE_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, LENS, RARITY_TIERS, REBROADCAST, SAMPLE_ITEMS, SAMPLE_POINTS,
-    SCORE_LENS, SCORE_TIERS, SONG_CATEGORIES, SONG_TYPES, SONG_TYPE_ITEMS,
+    SCORE_LENS, SCORE_TIERS, SEASONS, SEASON_ITEMS, SONG_CATEGORIES, SONG_TYPES, SONG_TYPE_ITEMS,
 )
 
 STAGES = ["Warm-Up Lobby", "Listening Booth", "Recording Studio", "Concert Hall"]
 MAX_MILESTONES = 50
 MILESTONE_STEPS = range(5, 26)
 EVENT_FINALE = "Grand Finale"
-SEASONS = ["Winter", "Spring", "Summer", "Fall"]  # AMQ's vintage names, e.g. "Spring 2010"
 
 # "Correct Answers: N" has id BASE_ID + N. Every other check gets its group's fixed block plus its index within the
 # group, so appending a check to a group never shifts existing ids.
@@ -47,11 +46,15 @@ class CheckSpec:
     secs: int = 0
     reqs: tuple[Req, ...] = field(default=())
 
-    def client_dict(self, address: int) -> dict:
+    def client_dict(self, address: int, gated: set[str]) -> dict:
         out = {"id": address, "name": self.name, "kind": self.kind, "key": self.key, "n": self.n, "pct": self.pct,
                "stage": self.stage}
         if self.secs:
             out["secs"] = self.secs
+        # the unlocks logic expects, so the client can say what a check is waiting for
+        needs = [{"category": r.category, "items": list(r.items), "n": r.need} for r in self.reqs if r.category in gated]
+        if needs:
+            out["needs"] = needs
         return out
 
 
@@ -137,9 +140,11 @@ def build_check_specs(milestone_count: int, milestone_step: int, *, free_tiers: 
 
     if seasons:
         for season in SEASONS:
-            specs.append(CheckSpec(f"{season} Listener: 10 Correct", "season", 1, "Seasons", key=season, n=10))
+            specs.append(CheckSpec(f"{season} Listener: 10 Correct", "season", 1, "Seasons", key=season, n=10,
+                                   reqs=(Req("Seasons", (SEASON_ITEMS[season],)),)))
         specs.append(CheckSpec("Four Seasons: Winter, Spring, Summer and Fall in One Game", "game_seasons", 1,
-                               "Seasons", n=len(SEASONS)))
+                               "Seasons", n=len(SEASONS),
+                               reqs=(Req("Seasons", tuple(SEASON_ITEMS.values()), len(SEASONS)),)))
 
     if sample_points:
         for point in SAMPLE_POINTS:

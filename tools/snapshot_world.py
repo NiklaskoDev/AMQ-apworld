@@ -36,6 +36,8 @@ CONFIGS = [
     {"free_difficulty_tiers": 1, "easy_floor": 70, "medium_floor": 68, "hard_floor": 67, "starting_song_type": "any",
      "starting_decades": 4, "starting_genres": 8, "trap_percentage": 100, "death_link": True, "ring_link": True,
      "trap_link": True, "season_checks": False, "quick_draw_checks": False},
+    {"goal": "completionist", "completion_percentage": 60, "starting_seasons": 1,
+     "unlock_categories": ["Song Types", "Decades", "Genres", "Formats", "Rarity", "Seasons"]},
 ]
 SEEDS = [1, 2, 3, 42]
 

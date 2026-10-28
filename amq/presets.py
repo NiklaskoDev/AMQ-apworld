@@ -18,7 +18,8 @@ OPTION_PRESETS: dict[str, dict[str, Any]] = {
         "starting_decades": 3,
     },
     "Sweaty": {
-        "unlock_categories": ["Song Types", "Decades", "Genres", "Formats", "Rarity", "Guess Time", "Sample Point"],
+        "unlock_categories": ["Song Types", "Decades", "Genres", "Formats", "Rarity", "Guess Time", "Sample Point",
+                              "Seasons"],
         "free_difficulty_tiers": 1,
         "guess_time_start": 7,
         "guess_time_step": 3,

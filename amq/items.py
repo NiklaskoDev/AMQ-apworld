@@ -42,6 +42,9 @@ FREE_SCORE_TIERS = 2
 SCORE_LENS = "Progressive Score Lens"
 DUB = "Dub Pass"
 REBROADCAST = "Rebroadcast Pass"
+# airing seasons, AMQ's vintage names (e.g. "Spring 2010"); only locked with Seasons in unlock_categories
+SEASONS = ["Winter", "Spring", "Summer", "Fall"]
+SEASON_ITEMS = {s: f"Season Pass: {s}" for s in SEASONS}
 
 SONG_TYPE_ITEMS = {t: f"{t} Pass" for t in SONG_TYPES}
 DECADE_ITEMS = {d: f"Decade Pass: {d}" for d in DECADES}
@@ -53,11 +56,12 @@ SHIELD = "Streak Shield"
 CHEER = "Hype Cheer"
 MULLIGAN = "Mulligan"
 SPOTLIGHT = "Spotlight"
+LINER_NOTES = "Liner Notes"
 
 # append-only, the list order is the id order
 TRAPS = ["Mute Trap", "Reverse Typing Trap", "Tiny Text Trap", "Streak Wipe Trap", "Tax Collector Trap", "Blind Trap"]
 
-FILLER_WEIGHTS = {ENCORE: 3, SHIELD: 3, CHEER: 4, MULLIGAN: 2, SPOTLIGHT: 2}
+FILLER_WEIGHTS = {ENCORE: 3, SHIELD: 3, CHEER: 4, MULLIGAN: 2, SPOTLIGHT: 2, LINER_NOTES: 2}
 
 
 class ItemData(NamedTuple):
@@ -87,10 +91,13 @@ def _build() -> dict[str, ItemData]:
     block(80, [ENCORE, SHIELD], ItemClassification.useful, "Boosts")
     block(82, [CHEER], ItemClassification.filler, "Boosts")
     block(83, [MULLIGAN, SPOTLIGHT], ItemClassification.useful, "Boosts")
+    # hints one of your open checks for whoever's item it holds; nothing depends on it
+    block(85, [LINER_NOTES], ItemClassification.filler, "Boosts")
     block(90, TRAPS, ItemClassification.trap, "Traps")
     block(100, CATEGORY_ITEMS.values(), prog, "Song Category")
     block(110, [SCORE_LENS], prog, "Anime Score")
     block(111, [DUB, REBROADCAST], prog, "Dub & Rebroadcast")
+    block(120, SEASON_ITEMS.values(), prog, "Seasons")
     return table
 
 
@@ -104,8 +111,9 @@ ITEM_GROUPS = {
     "Format Pass": set(FORMAT_ITEMS.values()),
     "Sample Pass": set(SAMPLE_ITEMS.values()),
     "Song Category": set(CATEGORY_ITEMS.values()),
+    "Season Pass": set(SEASON_ITEMS.values()),
     "Traps": set(TRAPS),
-    "Boosts": {ENCORE, SHIELD, CHEER, MULLIGAN, SPOTLIGHT},
+    "Boosts": {ENCORE, SHIELD, CHEER, MULLIGAN, SPOTLIGHT, LINER_NOTES},
 }
 
 

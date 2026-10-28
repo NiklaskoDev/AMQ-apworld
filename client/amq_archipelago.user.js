@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.9.0
+// @version      0.10.0
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -19,7 +19,7 @@
   'use strict';
 
   const GAME = 'Anime Music Quiz';
-  const CLIENT_VERSION = 6;
+  const CLIENT_VERSION = 7;
   const TYPES = { 1: 'Opening', 2: 'Ending', 3: 'Insert Song' };
   const DECADES = ['1980s & Earlier', '1990s', '2000s', '2010s', '2020s'];
   const DECADE_YEARS = { '1980s & Earlier': [null, 1989], '1990s': [1990, 1999], '2000s': [2000, 2009], '2010s': [2010, 2019], '2020s': [2020, null] };
@@ -62,7 +62,7 @@
     category: {}, score: {}, dub: {}, years: {}, quick: {}, nexus: 0,
     listOn: 0, listOff: 0, bounce: 0,
     processed: 0, encore: 0, shield: 0, mulligan: 0, spotlight: 0, traps: { mute: 0, reverse: 0, tiny: 0, blind: 0 },
-    finaleDone: false, ringBank: 0, deathCharges: 0, answered: 0,
+    finaleDone: false, ringBank: 0, deathCharges: 0, answered: 0, linerNotes: 0, noted: [],
   });
   const freshGame = () => ({
     songs: 0, eligible: 0, eligibleCorrect: 0, streak: 0, best: 0, missRun: 0,
@@ -356,9 +356,11 @@
   const gated = c => !!(S.data && S.data.gated.includes(c));
   function rebuildUnlocks() {
     const u = { types: new Set(), decades: new Set(), genres: new Set(), formats: new Set(), lens: 0, clocks: 0,
-      samples: new Set(['Start']), categories: new Set(['Standard']), scoreLens: 0, dub: false, rebroadcast: false };
+      samples: new Set(['Start']), categories: new Set(['Standard']), scoreLens: 0, dub: false, rebroadcast: false,
+      seasons: new Set(), counts: {} };
     let fragments = 0, r;
     for (const name of S.received) {
+      u.counts[name] = (u.counts[name] || 0) + 1;
       if ((r = /^(Opening|Ending|Insert Song) Pass$/.exec(name))) u.types.add(r[1]);
       else if ((r = /^Decade Pass: (.+)$/.exec(name))) u.decades.add(r[1]);
       else if ((r = /^Genre Key: (.+)$/.exec(name))) u.genres.add(r[1]);
@@ -367,6 +369,7 @@
       else if (name === 'Progressive Guess Time') u.clocks++;
       else if ((r = /^Sample Pass: (.+)$/.exec(name))) u.samples.add(r[1]);
       else if ((r = /^Song Category: (.+)$/.exec(name))) u.categories.add(r[1]);
+      else if ((r = /^Season Pass: (.+)$/.exec(name))) u.seasons.add(r[1]);
       else if (name === 'Progressive Score Lens') u.scoreLens++;
       else if (name === 'Dub Pass') u.dub = true;
       else if (name === 'Rebroadcast Pass') u.rebroadcast = true;
@@ -397,6 +400,7 @@
     if (songSource() === 'own_list' && !own.onList) return 'not on your list';
     if (gated('Song Types') && !U.types.has(song.type)) return song.type ? `${song.type} locked` : 'unknown song type';
     if (gated('Decades') && !U.decades.has(song.decade)) return song.decade ? `${song.decade} locked` : 'unknown year';
+    if (gated('Seasons') && !U.seasons.has(song.season)) return song.season ? `${song.season} locked` : 'unknown season';
     if (gated('Formats') && !U.formats.has(song.format)) return song.format ? `${song.format} locked` : 'unknown format';
     if (gated('Rarity') && !(song.tier && TIERS.indexOf(song.tier) <= maxTier())) return song.tier ? `${song.tier} songs locked` : 'unrated difficulty';
     if (gated('Genres') && !song.genres.some(g => U.genres.has(g))) return song.genres.length ? 'no unlocked genre' : 'no genre data';
@@ -531,6 +535,7 @@
         break;
       case 'LocationInfo':
         (m.locations || []).forEach(it => { S.scouts[it.location] = it; });
+        useLinerNotes(); // notes received before the scouts arrived
         break;
       case 'RoomUpdate':
         (m.checked_locations || []).forEach(l => S.checked.add(l));
@@ -646,6 +651,7 @@
     rebuildUnlocks();
     for (let i = S.prog.processed; i < S.received.length; i++) applyOneShot(S.received[i]);
     S.prog.processed = Math.max(S.prog.processed, S.received.length);
+    useLinerNotes();
     saveProg();
     evaluate();
   }
@@ -670,12 +676,37 @@
     else if (name === 'Streak Shield') { S.prog.shield++; notify('Streak Shield ready.'); }
     else if (name === 'Mulligan') { S.prog.mulligan++; notify('Mulligan: your next eligible miss is forgiven as if the song never played.'); }
     else if (name === 'Spotlight') { S.prog.spotlight++; notify('Spotlight: your next counted answer counts twice toward its category checks.'); }
+    else if (name === 'Liner Notes') { S.prog.linerNotes++; notify('Liner Notes: a free hint for one of your open checks.'); }
     else if (name === 'Hype Cheer') {
       S.prog.total += 2;
       shortenTraps();
       notify('Hype Cheer! +2 milestone progress, and active traps end a song sooner.');
     }
     applyTraps();
+  }
+
+  // ---------- Liner Notes ----------
+  // which scouted open checks a Liner Notes hints, best first: another player's progression item, your own, then
+  // another player's useful item
+  const NOTE_PICKS = [it => it.player !== S.slot && it.flags & 1, it => it.flags & 1, it => it.player !== S.slot && it.flags & 2];
+  /** Spends banked Liner Notes on free hints for open checks. A note with nothing worth hinting yet stays banked. */
+  function useLinerNotes() {
+    const P = S.prog;
+    if (!P.linerNotes || !S.connected || !S.ready) return;
+    const open = S.data.checks.map(c => S.scouts[c.id]).filter(it => it && !S.checked.has(it.location) && !P.noted.includes(it.location));
+    const picked = [];
+    while (P.linerNotes > 0) {
+      const pool = NOTE_PICKS.map(fits => open.filter(it => fits(it) && !picked.includes(it))).find(l => l.length);
+      if (!pool) break;
+      picked.push(pool[Math.floor(Math.random() * pool.length)]);
+      P.linerNotes--;
+    }
+    if (!picked.length) return;
+    P.noted.push(...picked.map(it => it.location));
+    send([{ cmd: 'CreateHints', locations: picked.map(it => it.location) }]);
+    const names = ((S.games[GAME] || {}).locations) || {};
+    picked.forEach(it => say(`Liner Notes: hinted ${names[it.location] || `#${it.location}`} for ${it.player === S.slot ? 'you' : playerName(it.player)}.`));
+    saveProg();
   }
 
   // ---------- TrapLink ----------
@@ -860,7 +891,7 @@
   function songLine(song, own, room, status) {
     const origin = songSource() === 'any' ? null : own.onList ? 'on list' : 'off list';
     const sample = gated('Sample Point') && room.samplePoint ? `${room.samplePoint} sample` : null;
-    const extra = [gated('Song Category') && song.category, gated('Anime Score') && song.scoreTier && `${song.scoreTier} anime`,
+    const extra = [gated('Seasons') && song.season, gated('Song Category') && song.category, gated('Anime Score') && song.scoreTier && `${song.scoreTier} anime`,
       song.dub && 'dub', song.rebroadcast && 'rebroadcast'];
     return [song.type, song.decade, song.format, song.tier, ...extra, sample, origin].filter(Boolean).join(' · ') +
       ' → ' + status;
@@ -953,8 +984,10 @@
     }
     return [0, 1];
   }
-  /** [done, total] of the checks a check-based goal (scholar, specialist) needs; [0, 0] for other goals. */
+  /** [done, total] of the checks a check-based goal (scholar, specialist, completionist) needs; [0, 0] otherwise. */
   function goalChecks() {
+    // completionist: any sent check counts toward goal_count
+    if (S.data && S.data.goal === 'completionist') return [S.data.checks.filter(c => S.checked.has(c.id)).length, S.data.goal_count || 0];
     const kinds = (S.data && S.data.goal_kinds) || [];
     const targets = kinds.length ? S.data.checks.filter(c => kinds.includes(c.kind)) : [];
     return [targets.filter(c => S.checked.has(c.id)).length, targets.length];
@@ -984,7 +1017,7 @@
     }
     const [goalDone, goalTotal] = goalChecks();
     const goalMet = D.goal === 'fragments' || (D.goal === 'finale' && S.prog.finaleDone) ||
-      (goalTotal > 0 && goalDone === goalTotal);
+      (goalTotal > 0 && goalDone >= goalTotal);
     if (!S.goalSent && S.fragments >= D.fragments_required && goalMet) {
       S.goalSent = true;
       send([{ cmd: 'StatusUpdate', status: 30 }]);
@@ -1080,6 +1113,7 @@
     add('Formats', FORMATS.slice(1), f => U.formats.has(f), f => `Format Pass: ${f}`);
     add('Sample Point', SAMPLE_POINTS.slice(1), x => U.samples.has(x), x => `Sample Pass: ${x}`);
     add('Song Category', CATEGORIES.slice(1), x => U.categories.has(x), x => `Song Category: ${x}`);
+    add('Seasons', SEASONS, x => U.seasons.has(x), x => `Season Pass: ${x}`);
     if (gated('Rarity') && maxTier() < TIERS.length - 1) out.push('Progressive Rarity Lens');
     if (gated('Guess Time') && U.clocks < (S.data.guess_time_items || 0)) out.push('Progressive Guess Time');
     if (gated('Anime Score') && maxScoreTier() < SCORE_TIERS.length - 1) out.push('Progressive Score Lens');
@@ -1110,6 +1144,7 @@
       ['Genres (optional)', list('Genres', U.genres, GENRES)],
       ['Guess time', gated('Guess Time') ? `${allowedGuessTime()}s or less` : 'any'],
       ['Sample point', list('Sample Point', U.samples, SAMPLE_POINTS)],
+      ...(gated('Seasons') ? [['Seasons (not a room filter)', list('Seasons', U.seasons, SEASONS)]] : []),
       ...(gated('Song Category') ? [['Song categories', list('Song Category', U.categories, CATEGORIES)]] : []),
       ...(gated('Anime Score') ? [['Anime score', `${Math.max(2, scoreFloor(SCORE_TIERS[maxScoreTier()]))}–10`]] : []),
       ...(gated('Dub & Rebroadcast') ? [['Dubs / rebroadcasts', `${U.dub ? 'on' : 'off'} / ${U.rebroadcast ? 'on' : 'off'}`]] : []),
@@ -1170,7 +1205,8 @@
     let h = `<b>${esc(S.slotName)}</b> · checks ${done}/${D.checks.length} · fragments ${S.fragments}/${D.fragments_required}
         <button id="ap-dc" style="float:right">Disconnect</button><br>
         <span class="dim">Correct ${P.total} · streak ${g.streak} (best ${g.best}) · encore ${P.encore} · shield ${P.shield}` +
-      `${P.mulligan ? ` · mulligan ${P.mulligan}` : ''}${P.spotlight ? ` · spotlight ${P.spotlight}` : ''}</span><br>`;
+      `${P.mulligan ? ` · mulligan ${P.mulligan}` : ''}${P.spotlight ? ` · spotlight ${P.spotlight}` : ''}` +
+      `${P.linerNotes ? ` · liner notes ${P.linerNotes}` : ''}</span><br>`;
     if (S.offline) h += '<b style="color:#ffd76a">Offline: still counting, checks are sent when the connection is back.</b><br>';
     const traps = Object.entries(P.traps).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`);
     if (traps.length) h += `<b style="color:#ff7a7a">Traps: ${traps.join(', ')} songs</b><br>`;
@@ -1180,7 +1216,8 @@
         ? `<b>Finale open:</b> ${D.finale_songs}+ counted songs at ${D.finale_accuracy}% in one game<br>` : '';
     }
     const [goalDone, goalTotal] = goalChecks();
-    if (goalTotal) h += `Goal: ${goalDone}/${goalTotal} ${D.goal === 'scholar' ? 'Genre Scholar' : 'song type'} checks<br>`;
+    const goalWhat = { scholar: 'Genre Scholar checks', specialist: 'song type checks', completionist: 'checks' }[D.goal] || 'checks';
+    if (goalTotal) h += `Goal: ${Math.min(goalDone, goalTotal)}/${goalTotal} ${goalWhat}<br>`;
     return h;
   }
   function guideSection() {
@@ -1203,18 +1240,31 @@
         '<br><span class="dim">Asks the server for a hint (costs hint points like !hint).</span>'
       : '<span class="dim">You have every unlock.</span>');
   }
-  /** Open checks, open stages first and closest to done first, with what each holds and what locks it. */
+  /** The unlocks a check still waits for, from the requirements in slot data: "Decade Pass: 1990s",
+   *  "1 more Progressive Rarity Lens" or "Genres: 3 more". Empty when it is in logic (or the seed predates them). */
+  function missingNeeds(c) {
+    if (!c.needs || !S.unlocks) return [];
+    const have = name => S.unlocks.counts[name] || 0;
+    return c.needs.flatMap(r => {
+      const left = r.n - r.items.reduce((sum, i) => sum + have(i), 0);
+      if (left <= 0) return [];
+      if (r.items.length === 1) return [left > 1 || have(r.items[0]) ? `${left} more ${r.items[0]}` : r.items[0]];
+      const missing = r.items.filter(i => !have(i));
+      return [missing.length === left ? missing.join(', ') : `${r.category}: ${left} more`];
+    });
+  }
+  /** Open checks, open ones first and closest to done first, with what each holds and what locks it. */
   function checksSection() {
     const D = S.data;
     const open = D.checks.filter(c => !S.checked.has(c.id)).map(c => {
       const [a, b] = progressOf(c, false);
-      return { c, a: Math.min(a, b), b };
-    }).sort((x, y) => (stageLock(x.c) > 0) - (stageLock(y.c) > 0) || y.a / y.b - x.a / x.b);
+      return { c, a: Math.min(a, b), b, needs: missingNeeds(c), lock: stageLock(c) };
+    }).sort((x, y) => (x.lock > 0 || x.needs.length > 0) - (y.lock > 0 || y.needs.length > 0) || y.a / y.b - x.a / x.b);
     const stageName = c => ((D.stages || [])[c.stage || 0]) || 'next stage';
-    const rows = open.slice(0, 40).map(({ c, a, b }) => {
-      const lock = stageLock(c);
+    const rows = open.slice(0, 40).map(({ c, a, b, needs, lock }) => {
       const scout = scoutLabel(c.id), star = S.scouts[c.id] && S.scouts[c.id].flags & 1 && S.scoutMode !== 'off';
       const note = (scout ? `<br><span class="${star ? 'prog' : 'dim'}">→ ${esc(scout)}</span>` : '') +
+        (needs.length ? `<br><span class="dim">needs ${esc(needs.join('; '))}</span>` : '') +
         (lock ? `<br><span class="dim">${esc(stageName(c))}: ${lock} more fragment${lock > 1 ? 's' : ''}</span>` : '');
       const bar = `<div class="bar"><i style="width:${Math.round(100 * a / b)}%"></i></div>`;
       return `<tr><td>${esc(c.name)}${note}</td><td style="width:70px">${bar}<span class="dim">${a}/${b}</span></td></tr>`;
@@ -1263,7 +1313,7 @@
   // ---------- boot ----------
   window.AMQAP = { state: S, connect, disconnect, handle, onAnswerResults, onQuizOver, onQuizReady, extractSong, extractOwn,
     lobbyGuide, lobbyWish, lobbySettingsFor, applyLobby, apCommand, stageLock, scoutLabel, focusWish, nextUp, applyFocus,
-    missingUnlocks, hintItem, exportState, importState,
+    missingUnlocks, missingNeeds, hintItem, exportState, importState, useLinerNotes,
     open: () => { panel.style.display = 'block'; render(); } };
   const wait = setInterval(() => {
     if (typeof Listener === 'undefined' || !document.body) return;

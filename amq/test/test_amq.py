@@ -5,7 +5,8 @@ from test.bases import WorldTestBase
 
 from ..items import (
     BASE_ID, BROAD_GENRES, CATEGORY_ITEMS, CLOCK, DECADES, DECADE_ITEMS, DUB, FRAGMENT, GAME_NAME, GENRE_ITEMS,
-    ITEM_NAME_TO_ID, LENS, MULLIGAN, REBROADCAST, SAMPLE_ITEMS, SCORE_LENS, SONG_TYPE_ITEMS, SPOTLIGHT,
+    ITEM_NAME_TO_ID, LENS, LINER_NOTES, MULLIGAN, REBROADCAST, SAMPLE_ITEMS, SCORE_LENS, SEASON_ITEMS, SONG_TYPE_ITEMS,
+    SPOTLIGHT,
 )
 from ..locations import EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID
 from ..options import AMQOptions
@@ -80,6 +81,17 @@ class TestDefaults(AMQTestBase):
         ids = {loc.address for loc in self.multiworld.get_locations(1) if loc.address is not None}
         self.assertEqual({c["id"] for c in data["checks"]}, ids)
         self.assertEqual(data["goal"], "finale")
+        self.assertEqual(data["goal_count"], 0)
+
+    def test_slot_data_needs(self) -> None:
+        """Each check lists the unlocks its rule needs, for the gated categories only."""
+        checks = {c["name"]: c for c in self.amq().fill_slot_data()["checks"]}
+        self.assertEqual(checks["Genre Scholar: Horror"]["needs"],
+                         [{"category": "Genres", "items": [GENRE_ITEMS["Horror"]], "n": 1}])
+        self.assertEqual(checks["Brutal Guess-Rate Songs x1"]["needs"], [{"category": "Rarity", "items": [LENS], "n": 2}])
+        self.assertNotIn("needs", checks["Correct Answers: 10"])
+        self.assertNotIn("needs", checks["Easy Guess-Rate Songs x10"], "free tiers need nothing")
+        self.assertNotIn("needs", checks["Fall Listener: 10 Correct"], "seasons are not gated by default")
 
 
 class TestStableIds(AMQTestBase):
@@ -112,6 +124,9 @@ class TestStableIds(AMQTestBase):
         self.assertEqual(LOCATION_NAME_TO_ID["First Correct Dub"], BASE_ID + 3400)
         self.assertEqual(LOCATION_NAME_TO_ID["Quick Draw: 5 Correct within 5s"], BASE_ID + 3500)
         self.assertEqual(LOCATION_NAME_TO_ID["Nexus Explorer: 10 Correct in Nexus"], BASE_ID + 3600)
+        self.assertEqual(ITEM_NAME_TO_ID[LINER_NOTES], BASE_ID + 85)
+        self.assertEqual(ITEM_NAME_TO_ID[SEASON_ITEMS["Winter"]], BASE_ID + 120)
+        self.assertEqual(ITEM_NAME_TO_ID[SEASON_ITEMS["Fall"]], BASE_ID + 123)
         self.assertEqual(len(set(LOCATION_NAME_TO_ID.values())), len(LOCATION_NAME_TO_ID))
         self.assertEqual(len(set(ITEM_NAME_TO_ID.values())), len(ITEM_NAME_TO_ID))
 
@@ -131,6 +146,47 @@ class TestSeasonChecks(AMQTestBase):
         self.assertFalse(self.can_reach_location("Fall Listener: 10 Correct"), "stage 1 needs fragments")
         self.collect_by_name(FRAGMENT)
         self.assertTrue(self.can_reach_location(FOUR_SEASONS), "seasons are never locked by items")
+
+
+class TestSeasonsGated(AMQTestBase):
+    options = {"unlock_categories": ["Song Types", "Decades", "Genres", "Formats", "Rarity", "Seasons"],
+               "starting_seasons": 2}
+
+    def test_season_passes(self) -> None:
+        start = {i.name for i in self.multiworld.precollected_items[1]}
+        owned = [name for name in SEASON_ITEMS.values() if name in start]
+        missing = [name for name in SEASON_ITEMS.values() if name not in start]
+        self.assertEqual(len(owned), 2)
+        for name in missing:
+            self.assertEqual(len(self.get_items_by_name(name)), 1)
+        for name in owned:
+            self.assertEqual(self.get_items_by_name(name), [], "starting seasons are not also in the pool")
+        self.collect_by_name(FRAGMENT)
+        season = missing[0].removeprefix("Season Pass: ")
+        self.assertTrue(self.can_reach_location(f"{owned[0].removeprefix('Season Pass: ')} Listener: 10 Correct"))
+        self.assertFalse(self.can_reach_location(f"{season} Listener: 10 Correct"))
+        self.assertFalse(self.can_reach_location(FOUR_SEASONS))
+        self.collect_by_name(missing[0])
+        self.assertTrue(self.can_reach_location(f"{season} Listener: 10 Correct"))
+        self.assertFalse(self.can_reach_location(FOUR_SEASONS))
+        self.collect_by_name(missing[1])
+        self.assertTrue(self.can_reach_location(FOUR_SEASONS))
+
+    def test_slot_data(self) -> None:
+        data = self.amq().fill_slot_data()
+        self.assertIn("Seasons", data["gated"])
+        four = next(c for c in data["checks"] if c["name"] == FOUR_SEASONS)
+        self.assertEqual(four["needs"], [{"category": "Seasons", "items": list(SEASON_ITEMS.values()), "n": 4}])
+
+
+class TestSeasonsGatedWithoutChecks(AMQTestBase):
+    """Seasons can be locked without season checks: the passes only decide which songs count."""
+    options = {"unlock_categories": ["Seasons"], "season_checks": False, "starting_seasons": 1}
+
+    def test_passes_without_checks(self) -> None:
+        start = {i.name for i in self.multiworld.precollected_items[1]}
+        self.assertEqual(len(start & set(SEASON_ITEMS.values())), 1)
+        self.assertEqual(len([i for i in self.multiworld.itempool if i.name in SEASON_ITEMS.values()]), 3)
 
 
 class TestSeasonChecksOff(AMQTestBase):
@@ -523,3 +579,48 @@ class TestOwnListSafetyTightPool(OwnListSafetyBase):
         self.assertEqual(amq.options.milestone_count.value, 50)
         self.assertEqual(amq.fragment_total, 58)
         self.fill_and_check_excluded()
+
+
+class TestCompletionistGoal(OwnListSafetyBase):
+    """The goal counts checks that may hold progression; own_list_safety's excluded checks don't raise the bar."""
+    options = {"goal": "completionist", "completion_percentage": 50, "song_source": "own_list"}
+
+    def test_goal_count(self) -> None:
+        world = self.amq()
+        countable = len(world.specs) - len(self.excluded())
+        self.assertGreater(len(self.excluded()), 0)
+        data = world.fill_slot_data()
+        self.assertEqual(data["goal"], "completionist")
+        self.assertEqual(data["goal_count"], -(-countable // 2))
+        self.assertEqual(data["goal_kinds"], [])
+
+    def test_needs_fragments_and_enough_checks(self) -> None:
+        self.assertFalse(self.can_reach_location(EVENT_FINALE))
+        self.collect_all_but([FRAGMENT])
+        self.assertFalse(self.can_reach_location(EVENT_FINALE), "the fragments are still needed")
+        self.collect_by_name(FRAGMENT)
+        self.assertTrue(self.can_reach_location(EVENT_FINALE))
+
+    def test_fill(self) -> None:
+        self.fill_and_check_excluded()
+
+
+class TestCompletionistEverything(AMQTestBase):
+    """At 100% every check that may hold progression must be reachable, so every unlock is needed."""
+    options = {"goal": "completionist", "completion_percentage": 100}
+
+    def test_needs_every_unlock(self) -> None:
+        start = {i.name for i in self.multiworld.precollected_items[1]}
+        missing = next(item for item in GENRE_ITEMS.values() if item not in start)
+        self.collect_all_but([missing])
+        self.assertFalse(self.can_reach_location(EVENT_FINALE))
+        self.collect_by_name(missing)
+        self.assertTrue(self.can_reach_location(EVENT_FINALE))
+
+
+class TestLinerNotes(AMQTestBase):
+    run_default_tests = False
+
+    def test_filler(self) -> None:
+        from BaseClasses import ItemClassification
+        self.assertEqual(self.amq().create_item(LINER_NOTES).classification, ItemClassification.filler)

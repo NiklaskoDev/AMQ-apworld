@@ -12,7 +12,8 @@ from .descriptions import ITEM_DESCRIPTIONS, LOCATION_DESCRIPTIONS
 from .items import (
     AMQItem, BROAD_GENRES, CATEGORY_ITEMS, CHEER, CLOCK, DECADES, DECADE_ITEMS, DUB, FILLER_WEIGHTS, FORMAT_ITEMS,
     FRAGMENT, FREE_SCORE_TIERS, GAME_NAME, GENRES, GENRE_ITEMS, ITEM_GROUPS, ITEM_NAME_TO_ID, ITEM_TABLE, LENS,
-    RARITY_TIERS, REBROADCAST, SAMPLE_ITEMS, SCORE_FLOORS, SCORE_LENS, SCORE_TIERS, SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
+    RARITY_TIERS, REBROADCAST, SAMPLE_ITEMS, SCORE_FLOORS, SCORE_LENS, SCORE_TIERS, SEASONS, SEASON_ITEMS,
+    SONG_TYPE_ITEMS, SONG_TYPES, TRAPS,
 )
 from .locations import (
     AMQLocation, CheckSpec, EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID, MAX_MILESTONES, Req, STAGES,
@@ -21,7 +22,7 @@ from .locations import (
 from .options import AMQOptions, OPTION_GROUPS, SongSource
 from .presets import OPTION_PRESETS
 
-CLIENT_VERSION = 6
+CLIENT_VERSION = 7
 # goals that need every check of these kinds on top of the fragments
 GOAL_KINDS = {"scholar": {"genre"}, "specialist": {"type"}}
 # options that shape the locations, rules or pool; sent in slot data so Universal Tracker can rebuild the world
@@ -29,6 +30,7 @@ TRACKER_OPTIONS = [
     "goal", "unlock_categories", "fragments_required", "fragment_extra_percent", "milestone_count", "milestone_step",
     "challenge_checks", "multiplayer_checks", "season_checks", "song_source", "free_difficulty_tiers",
     "guess_time_items", "starting_decades", "starting_genres", "quick_draw_checks", "nexus_checks", "own_list_safety",
+    "starting_seasons", "completion_percentage",
 ]
 
 logger = logging.getLogger("Anime Music Quiz")
@@ -72,6 +74,7 @@ class AMQWorld(World):
     starting: list[str]
     fragment_total: int
     excluded: set[str]
+    goal_count: int
 
     ut_can_gen_without_yaml = True  # Universal Tracker: everything needed comes from slot data
 
@@ -175,6 +178,8 @@ class AMQWorld(World):
             broad = self.random.choice(BROAD_GENRES)
             rest = self.random.sample([g for g in GENRES if g != broad], o.starting_genres.value - 1)
             starting += [GENRE_ITEMS[g] for g in [broad, *rest]]
+        if "Seasons" in self.gated:
+            starting += [SEASON_ITEMS[s] for s in self.random.sample(SEASONS, o.starting_seasons.value)]
         return starting
 
     def _unlock_items(self) -> list[str]:
@@ -187,6 +192,8 @@ class AMQWorld(World):
             names += GENRE_ITEMS.values()
         if "Formats" in self.gated:
             names += [n for f, n in FORMAT_ITEMS.items() if f != "TV"]
+        if "Seasons" in self.gated:
+            names += SEASON_ITEMS.values()
         names = [n for n in names if n not in self.starting]
         if "Rarity" in self.gated:
             names += [LENS] * (len(RARITY_TIERS) - self.options.free_difficulty_tiers.value)
@@ -225,6 +232,7 @@ class AMQWorld(World):
             previous = region
 
         goal_targets: list[AMQLocation] = []
+        countable: list[AMQLocation] = []  # what the completionist goal counts: every check that may hold progression
         goal_kinds = GOAL_KINDS.get(self.options.goal.current_key, set())
         for spec in self.specs:
             region = stages[spec.stage]
@@ -234,6 +242,8 @@ class AMQWorld(World):
                 location.access_rule = self._rule(reqs)
             if spec.name in self.excluded:
                 location.progress_type = LocationProgressType.EXCLUDED
+            else:
+                countable.append(location)
             region.locations.append(location)
             if spec.kind in goal_kinds:
                 goal_targets.append(location)
@@ -242,8 +252,13 @@ class AMQWorld(World):
         self.multiworld.regions.append(finale)
         menu.connect(finale, "Enter Grand Finale", lambda state: state.has(FRAGMENT, self.player, required))
         event = AMQLocation(self.player, EVENT_FINALE, None, finale)
+        self.goal_count = 0
         if goal_targets:
             event.access_rule = lambda state: all(loc.can_reach(state) for loc in goal_targets)
+        elif self.options.goal.current_key == "completionist":
+            # any sent check counts in the client, but logic only relies on the ones that may hold progression
+            self.goal_count = need = math.ceil(len(countable) * self.options.completion_percentage.value / 100)
+            event.access_rule = lambda state: sum(loc.can_reach(state) for loc in countable) >= need
         event.place_locked_item(AMQItem("Victory", ItemClassification.progression, None, self.player))
         finale.locations.append(event)
 
@@ -268,16 +283,17 @@ class AMQWorld(World):
 
     def _filler(self, count: int) -> list[str]:
         """Traps and boosts for the remaining checks. Excluded checks only take filler and traps, and most boosts
-        are useful items, so Hype Cheers replace boosts until the excluded checks are covered."""
+        are useful items, so Hype Cheers replace useful boosts until the excluded checks are covered."""
         weights = {t: w for t, w in self.options.trap_weights.value.items() if t in TRAPS and w > 0}
         trap_count = round(count * self.options.trap_percentage.value / 100) if weights else 0
         traps = self.random.choices(list(weights), list(weights.values()), k=trap_count) if trap_count else []
         boosts = [self.get_filler_item_name() for _ in range(count - trap_count)]
-        short = len(self.excluded) - trap_count - boosts.count(CHEER)
+        excludable = [ITEM_TABLE[name].classification == ItemClassification.filler for name in boosts]
+        short = len(self.excluded) - trap_count - sum(excludable)
         for i, name in enumerate(boosts):
             if short <= 0:
                 break
-            if name != CHEER:
+            if not excludable[i]:
                 boosts[i] = CHEER
                 short -= 1
         return traps + boosts
@@ -291,6 +307,7 @@ class AMQWorld(World):
             "client_version": CLIENT_VERSION,
             "goal": o.goal.current_key,
             "goal_kinds": sorted(GOAL_KINDS.get(o.goal.current_key, set())),
+            "goal_count": self.goal_count,
             "fragments_required": o.fragments_required.value,
             "stages": STAGES,
             "stage_fragments": stage_fragments(o.fragments_required.value),
@@ -315,7 +332,7 @@ class AMQWorld(World):
             "ring_link": bool(o.ring_link),
             "ring_link_rate": o.ring_link_rate.value,
             "tracker": {name: self._option_value(name) for name in TRACKER_OPTIONS},
-            "checks": [s.client_dict(LOCATION_NAME_TO_ID[s.name]) for s in self.specs],
+            "checks": [s.client_dict(LOCATION_NAME_TO_ID[s.name], self.gated) for s in self.specs],
         }
 
     def _option_value(self, name: str) -> Any:
