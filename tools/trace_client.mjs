@@ -22,7 +22,7 @@ function fakeDocument() {
   const element = tag => ({
     tagName: tag, style: {}, dataset: {}, children: [], textContent: '', innerHTML: '', id: '',
     appendChild(child) { this.children.push(child); if (child.id) byId[child.id] = child; return child; },
-    querySelector: () => null, querySelectorAll: () => [],
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
   });
   return { head: element('head'), body: element('body'), createElement: element, getElementById: id => byId[id] || null,
     querySelectorAll: () => [], addEventListener(type, fn) { (handlers[type] ||= []).push(fn); }, handlers };
