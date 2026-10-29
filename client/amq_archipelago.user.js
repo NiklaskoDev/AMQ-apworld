@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.10.1
+// @version      0.10.2
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -86,8 +86,23 @@
     const v = value.trim().toLowerCase().replace(/[-_]/g, ' ');
     return list.find(x => x.toLowerCase().replace(/-/g, ' ') === v) || null;
   };
+  // vintage is a string ("Fall 2009") on older AMQ and a localization object ({ key, data: { year } }) on newer AMQ;
+  // both become "Season Year" text here. The season is a season word in the key (e.g. "...fall") or a 0-3 season id.
+  function vintageText(vintage) {
+    if (!vintage || typeof vintage !== 'object') return String(vintage || '');
+    const data = vintage.data || {};
+    const year = data.year !== undefined ? data.year : vintage.year;
+    const word = [data.season, vintage.season, vintage.key].find(v => typeof v === 'string');
+    const id = [data.seasonId, data.season, vintage.seasonId].find(v => typeof v === 'number');
+    const season = (word && (/(?:^|[^a-z])(winter|spring|summer|fall|autumn)(?![a-z])/i.exec(word) || [])[1]) || SEASONS[id];
+    if (year !== undefined && year !== null) return `${season || ''} ${year}`.trim();
+    try { // last resort: let AMQ render it
+      if (typeof localizationHandler !== 'undefined' && vintage.key) return String(localizationHandler.translate(vintage.key, data));
+    } catch (e) { /* fall through */ }
+    return '';
+  }
   function yearOf(vintage) {
-    const m = /(\d{4})/.exec(String(vintage || ''));
+    const m = /(\d{4})/.exec(vintageText(vintage));
     return m ? +m[1] : null;
   }
   function decadeOf(vintage) {
@@ -96,7 +111,7 @@
     return y < 1990 ? DECADES[0] : y < 2000 ? DECADES[1] : y < 2010 ? DECADES[2] : y < 2020 ? DECADES[3] : DECADES[4];
   }
   function seasonOf(vintage) {
-    const m = /^\s*([a-z]+)/i.exec(String(vintage || ''));
+    const m = /^\s*([a-z]+)/i.exec(vintageText(vintage));
     if (!m) return null;
     return /^autumn$/i.test(m[1]) ? 'Fall' : canon(SEASONS, m[1]);
   }

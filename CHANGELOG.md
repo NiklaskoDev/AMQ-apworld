@@ -4,6 +4,15 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
+## [0.10.2] - 2026-10-29
+
+Client version 7 (unchanged). No changes to generation: seeds come out the same as with 0.10.1.
+
+### Fixed
+- Client: every song showed "unknown year" and none counted while Decades (or Seasons) were gated. AMQ now sends a
+  song's vintage as a localization object (`{ key, data: { year } }`) instead of text like "Fall 2009"; the client
+  reads both.
+
 ## [0.10.1] - 2026-10-29
 
 Client version 7 (unchanged). No changes to generation: seeds come out the same as with 0.10.0.

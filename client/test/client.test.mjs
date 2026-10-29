@@ -314,6 +314,16 @@ const SEASON_CHECKS = [
   { id: 2904, name: 'Four Seasons', kind: 'game_seasons', n: 4, stage: 0 },
 ];
 
+test('vintage sent as a localization object is read', async () => {
+  const { api } = await connected();
+  const song = api.extractSong({ songInfo: { vintage: { key: 'song_library.vintage.fall', data: { year: 2009 } } } });
+  assert.equal(song.year, 2009);
+  assert.equal(song.decade, '2000s');
+  assert.equal(song.season, 'Fall');
+  assert.equal(api.extractSong({ songInfo: { vintage: { key: 'x', data: { year: 1995, seasonId: 1 } } } }).season, 'Spring');
+  assert.equal(api.extractSong({ songInfo: { vintage: { key: 'x', data: { year: 2021 } } } }).decade, '2020s');
+});
+
 test('seasons are read from the vintage and counted per song and per game', async () => {
   const { ws, fire, S, api } = await connected({ slot: { checks: [...CHECKS, ...SEASON_CHECKS] } });
   assert.equal(api.extractSong(answer({ season: 'Autumn' })).season, 'Fall');
