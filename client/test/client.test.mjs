@@ -1051,3 +1051,13 @@ test('liner notes hint an open check holding another player\'s progression item,
   assert.equal(S.prog.linerNotes, 1);
   assert.deepEqual([...S.prog.noted], [2601, 1010]);
 });
+
+test('key presses in the panel do not reach AMQ, so Backspace works in its inputs', async () => {
+  const { sandbox } = await loadClient({ WebSocket: FakeSocket });
+  const panel = sandbox.document.body.children.find(x => x.id === 'amq-ap-panel');
+  for (const type of ['keydown', 'keypress', 'keyup']) {
+    let stopped = false;
+    panel.handlers[type].forEach(fn => fn({ type, key: 'Backspace', stopPropagation() { stopped = true; } }));
+    assert.ok(stopped, type);
+  }
+});

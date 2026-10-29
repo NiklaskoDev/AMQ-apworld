@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.10.0
+// @version      0.10.1
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -1183,6 +1183,8 @@
     btn.id = 'amq-ap-btn'; btn.textContent = 'AP';
     panel = document.createElement('div'); panel.id = 'amq-ap-panel';
     body = document.createElement('div'); panel.appendChild(body);
+    // AMQ's page-wide key handlers (e.g. one that blocks Backspace outside its own inputs) must not see typing here
+    for (const type of ['keydown', 'keypress', 'keyup']) panel.addEventListener(type, ev => ev.stopPropagation());
     btn.onclick = () => { panel.style.display = panel.style.display === 'block' ? 'none' : 'block'; render(); };
     document.body.appendChild(btn); document.body.appendChild(panel);
   }

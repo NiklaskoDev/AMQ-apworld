@@ -9,7 +9,8 @@ const SCRIPT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'am
 function fakeDocument() {
   const byId = {}, handlers = {};
   const element = tag => ({
-    tagName: tag, style: {}, dataset: {}, children: [], textContent: '', innerHTML: '', id: '',
+    tagName: tag, style: {}, dataset: {}, children: [], textContent: '', innerHTML: '', id: '', handlers: {},
+    addEventListener(type, fn) { (this.handlers[type] ||= []).push(fn); },
     appendChild(child) { this.children.push(child); if (child.id) byId[child.id] = child; return child; },
     querySelector: () => null,
     querySelectorAll: () => [],
