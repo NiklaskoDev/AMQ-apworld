@@ -22,7 +22,7 @@ from .locations import (
 from .options import AMQOptions, OPTION_GROUPS, SongSource
 from .presets import OPTION_PRESETS
 
-CLIENT_VERSION = 7
+CLIENT_VERSION = 8
 # goals that need every check of these kinds on top of the fragments
 GOAL_KINDS = {"scholar": {"genre"}, "specialist": {"type"}}
 # options that shape the locations, rules or pool; sent in slot data so Universal Tracker can rebuild the world
@@ -315,6 +315,7 @@ class AMQWorld(World):
             "finale_accuracy": o.finale_accuracy.value,
             "gated": sorted(self.gated),
             "song_source": o.song_source.current_key,
+            "answer_mode": o.answer_mode.current_key,
             "difficulty_floors": {"Easy": o.easy_floor.value, "Medium": o.medium_floor.value,
                                   "Hard": o.hard_floor.value, "Brutal": 0},
             "free_difficulty_tiers": o.free_difficulty_tiers.value,

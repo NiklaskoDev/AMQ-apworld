@@ -117,6 +117,19 @@ class OwnListSafety(DefaultOnToggle):
     display_name = "Own List Safety"
 
 
+class AnswerMode(Choice):
+    """
+    Which way of answering counts. Instead of the answer box, AMQ can show you multiple choice options to pick from.
+    Any: typed and multiple choice answers both count.
+    Typing: songs where you had multiple choice are ignored.
+    Multiple Choice: only songs where you had multiple choice count; typed ones are ignored."""
+    display_name = "Answer Mode"
+    option_any = 0
+    option_typing = 1
+    option_multiple_choice = 2
+    default = 0
+
+
 class EasyFloor(Range):
     """Lowest guess rate (%) that counts as Easy. Easy is this value up to 100%."""
     display_name = "Easy Difficulty Floor"
@@ -350,6 +363,7 @@ class AMQOptions(PerGameCommonOptions):
     starting_seasons: StartingSeasons
     song_source: SongSource
     own_list_safety: OwnListSafety
+    answer_mode: AnswerMode
     easy_floor: EasyFloor
     medium_floor: MediumFloor
     hard_floor: HardFloor
@@ -381,8 +395,8 @@ class AMQOptions(PerGameCommonOptions):
 OPTION_GROUPS = [
     OptionGroup("Goal", [Goal, FragmentsRequired, FragmentExtraPercent, CompletionPercentage, FinaleSongs,
                          FinaleAccuracy]),
-    OptionGroup("Unlocks", [UnlockCategories, SongSource, OwnListSafety, StartingSongType, StartingDecades,
-                            StartingGenres, StartingSeasons]),
+    OptionGroup("Unlocks", [UnlockCategories, SongSource, OwnListSafety, AnswerMode, StartingSongType,
+                            StartingDecades, StartingGenres, StartingSeasons]),
     OptionGroup("Difficulty", [EasyFloor, MediumFloor, HardFloor, FreeDifficultyTiers, GuessTimeStart, GuessTimeStep,
                                GuessTimeItems]),
     OptionGroup("Checks", [MilestoneCount, MilestoneStep, ChallengeChecks, SeasonChecks, QuickDrawChecks, NexusChecks,

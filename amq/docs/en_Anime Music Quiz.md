@@ -67,6 +67,21 @@ two ways out:
   `exclude_locations: ["Genres", "Formats", "Dubs & Rebroadcasts"]`.
 * During the game, the host can complete it from the server console with `/send_location <player> <check name>`.
 
+## Answer mode
+
+Instead of the answer box, AMQ can show you multiple choice options to pick from. `answer_mode` decides which of the
+two counts:
+
+| Value | Effect |
+| --- | --- |
+| `any` (default) | Typed and multiple choice answers both count. |
+| `typing` | Songs where you had multiple choice are ignored, also when you took it as a hint during the song. |
+| `multiple_choice` | Only songs where you had multiple choice count; typed ones are ignored. |
+
+Ignored songs don't break streaks. Multiple choice is your own setting, not a room filter, so Apply to room leaves it
+alone; the lobby guide lists it as a reminder. A click on an option locks in your answer for Quick Draw just like
+Enter does. If the client can't tell how a song was answered, the song counts either way and the log says so once.
+
 ## Difficulty tiers
 
 | Option | Default | Meaning |
@@ -124,7 +139,7 @@ season's check needs its pass and Four Seasons needs all four.
 
 The options page offers presets: **Casual** (fragments goal, more free tiers and starting unlocks, fewer traps),
 **Watched-only Strict** (`own_list` with only the broad filters locked), **Sweaty** (guess time, sample point and
-seasons locked, one free difficulty tier, a long and accurate finale, more traps) and **Short Async** (fewer fragments
+seasons locked, one free difficulty tier, a long and accurate finale, more traps, typing only) and **Short Async** (fewer fragments
 and milestones, no season or quick draw checks).
 
 ## Stages
@@ -156,9 +171,9 @@ Everything is detected from songs you answer in the real game:
   missing 3 in a row in one game) and Strong Finish (end a game on a 5- or 10-song streak)
 * Sample points (only with `Sample Point` locked): 10 correct songs at each sample point
 * Year Collector (with `challenge_checks`): correct songs from 10 and 25 different years
-* Quick Draw (`quick_draw_checks`, on by default): correct answers locked in with Enter within 5 or 3 seconds of the
-  song starting. The client times this itself. An answer you never press Enter on (AMQ submits it at the end) is not
-  quick, and neither is one changed later.
+* Quick Draw (`quick_draw_checks`, on by default): correct answers locked in with Enter (or a click on a multiple
+  choice option) within 5 or 3 seconds of the song starting. The client times this itself. An answer you never press
+  Enter on (AMQ submits it at the end) is not quick, and neither is one changed later.
 * Nexus (`nexus_checks`, off by default): 10, 25 and 50 correct answers in AMQ's solo Nexus mode
 * Optional multiplayer placements (podium with 4+ players, wins, wins with 8+ players)
 
@@ -184,8 +199,8 @@ three in five of them didn't count, it warns you once in AMQ's chat and names th
 Traps are cosmetic. They never touch your answers or the game itself.
 
 * **Mute Trap**: audio muted for a few songs (default 3)
-* **Reverse Typing Trap**: the answer box displays text backwards
-* **Tiny Text Trap**: the answer box text shrinks to near-unreadable size
+* **Reverse Typing Trap**: the answer box (and the multiple choice options) display text backwards
+* **Tiny Text Trap**: the answer box text (and the multiple choice options) shrink to near-unreadable size
 * **Streak Wipe Trap**: your current streak resets
 * **Tax Collector Trap**: you lose 5 points of cumulative milestone progress
 * **Blind Trap**: the anime clip stays hidden after the song is revealed, for a few songs

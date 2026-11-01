@@ -273,6 +273,7 @@ class TestSongSourceAny(AMQTestBase):
         names = {loc.name for loc in self.multiworld.get_locations(1)}
         self.assertFalse(names & LIST_CHECKS)
         self.assertEqual(self.amq().fill_slot_data()["song_source"], "any")
+        self.assertEqual(self.amq().fill_slot_data()["answer_mode"], "any")
 
 
 class TestSongSourceOwnList(AMQTestBase):
@@ -291,6 +292,23 @@ class TestSongSourceMixed(AMQTestBase):
         names = {loc.name for loc in self.multiworld.get_locations(1)}
         self.assertLessEqual(LIST_CHECKS, names)
         self.assertEqual(self.amq().fill_slot_data()["song_source"], "mixed")
+
+
+class TestAnswerModeTyping(AMQTestBase):
+    options = {"answer_mode": "typing"}
+
+    def test_slot_data(self) -> None:
+        self.assertEqual(self.amq().fill_slot_data()["answer_mode"], "typing")
+
+
+class TestAnswerModeMultipleChoice(AMQTestBase):
+    options = {"answer_mode": "multiple_choice"}
+
+    def test_same_checks_and_slot_data(self) -> None:
+        # only the client acts on it: the checks, including Quick Draw (a click locks in a choice), stay the same
+        names = {loc.name for loc in self.multiworld.get_locations(1)}
+        self.assertTrue(any(name.startswith("Quick Draw") for name in names))
+        self.assertEqual(self.amq().fill_slot_data()["answer_mode"], "multiple_choice")
 
 
 class TestOneFreeTier(AMQTestBase):

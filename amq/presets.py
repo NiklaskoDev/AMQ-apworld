@@ -27,6 +27,7 @@ OPTION_PRESETS: dict[str, dict[str, Any]] = {
         "finale_accuracy": 85,
         "starting_genres": 3,
         "trap_percentage": 40,
+        "answer_mode": "typing",
     },
     "Short Async": {
         "goal": "fragments",

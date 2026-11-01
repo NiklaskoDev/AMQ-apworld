@@ -1169,3 +1169,65 @@ test('the login fields keep a saved AMQ password out, and the AP button shows th
   assert.equal(btn.dataset.state, 'ok');
   assert.match(html(), /Me · connected/);
 });
+
+// ---------- answer mode ----------
+const CHOICES = { multipleChoiceNames: ['Placeholder A', 'Placeholder B', 'Placeholder C', 'Placeholder D'] };
+
+test('answer_mode typing ignores songs with multiple choice, also taken as a hint, and counts when AMQ does not say', async () => {
+  const { fire, S, sandbox, api } = await connected({ slot: { answer_mode: 'typing' } });
+  fire('play next song', CHOICES);
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 0);
+  assert.match(S.lastSong, /· multiple choice → ignored \(multiple choice not counted\)$/);
+  assert.equal(S.game.streak, 0);
+  fire('play next song', { multipleChoiceNames: null });
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 1);
+  assert.match(S.lastSong, /Medium → counted$/);
+  // Hint mode: the choices appear mid-song and may be gone again by the results
+  fire('play next song', { multipleChoiceNames: null });
+  sandbox.quiz.answerInput = { multipleChoice: { displayed: true } };
+  fire('guess phase over');
+  sandbox.quiz.answerInput.multipleChoice.displayed = false;
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 1);
+  assert.equal(S.game.streak, 1, 'an ignored song does not break the streak');
+  // nothing readable: the song counts, and the log says so once
+  delete sandbox.quiz.answerInput;
+  for (let i = 0; i < 2; i++) { fire('play next song', {}); fire('answer results', answer()); }
+  assert.equal(S.prog.total, 3);
+  assert.equal(S.log.filter(l => /Can't tell whether you had multiple choice/.test(l)).length, 1);
+  assert.deepEqual([...api.lobbyGuide().find(([k]) => /Answering/.test(k))], ['Answering (yours, not a room filter)',
+    'typing only, no multiple choice']);
+});
+
+test('answer_mode multiple_choice ignores typed songs, and a click on an option times Quick Draw', async () => {
+  const QUICK = [{ id: 3502, name: 'Quick Draw: 1 Correct within 3s', kind: 'quick', n: 1, secs: 3, stage: 0 }];
+  const { ws, fire, S, sandbox } = await connected({ slot: { answer_mode: 'multiple_choice', checks: [...CHECKS, ...QUICK] } });
+  fire('play next song', { multipleChoiceNames: null });
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 0);
+  assert.match(S.lastSong, /ignored \(typed answers not counted\)$/);
+  const option = { closest: sel => (sel.includes('#qpMultipleChoiceContainer') ? {} : null) };
+  fire('play next song', CHOICES);
+  sandbox.document.key('click', undefined, { closest: () => null }); // a click elsewhere is no answer
+  assert.equal(S.lastSubmit, 0);
+  sandbox.document.key('click', undefined, option);
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 1);
+  assert.match(S.lastSong, /multiple choice → counted in 0\.\ds$/);
+  assert.ok(sentChecks(ws).includes(3502));
+});
+
+test('answer_mode any counts both, and traps reach the multiple choice options', async () => {
+  const { ws, fire, S, sandbox } = await connected();
+  fire('play next song', CHOICES);
+  fire('answer results', answer());
+  fire('play next song', { multipleChoiceNames: null });
+  fire('answer results', answer());
+  assert.equal(S.prog.total, 2);
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Reverse Typing Trap', 'Tiny Text Trap']) }]);
+  const css = sandbox.document.getElementById('amq-ap-trap-css').textContent;
+  assert.match(css, /#qpMultipleChoiceContainer \.qpMultipleChoiceEntryText\{direction:rtl/);
+  assert.match(css, /#qpMultipleChoiceContainer \.qpMultipleChoiceEntryText\{font-size:5px/);
+});

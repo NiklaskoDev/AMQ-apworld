@@ -13,7 +13,7 @@ behind items, and songs outside your unlocks don't count. Correct guesses send c
 per-category counts, streaks, flawless starts, variety challenges (Triple Threat, Time Capsule, Genre Sampler),
 seasons, comebacks, marathons and optional multiplayer placements. `song_source` lets each player choose whether any song counts,
 only songs from their own anime list (strict, with the checks a small list may not reach holding only filler), or
-a mix with extra on-list/off-list checks. The difficulty tier
+a mix with extra on-list/off-list checks. `answer_mode` counts typed answers, multiple choice answers or both. The difficulty tier
 boundaries and how many tiers start unlocked are configurable too, and the optional Guess Time and Sample Point categories
 lock the room's timer and sample point too, and Song Category, Anime Score, Dub & Rebroadcast and the airing season can
 be locked as well.
@@ -110,5 +110,8 @@ The client listens to AMQ's in-page events (`answer results`, `quiz ready`, `qui
 `animeScore`, `dubSongs`, `rebroadcastSongs`) have not been checked against the live site yet, so the client accepts
 a few spellings and falls back to counting songs when it can't read them. For the room settings (and the room's guess time) it uses `lobby.settings`, `hostModal.getSettings`/`changeSettings` and
 `lobby.changeGameSettings`, and for chat `gameChat.systemMessage` and the `#gcInput` box. These names were
-checked against widely used community userscripts. All site-specific code is in the "AMQ adapters" section of the
+checked against widely used community userscripts. For `answer_mode` it reads `multipleChoiceNames` from
+`play next song` and `quiz.answerInput.multipleChoice.displayed` (also on `guess phase over`, for multiple choice taken
+as a hint), and times clicks inside `#qpMultipleChoiceContainer`; these come from a community userscript that recreates
+AMQ's events, not from the live site, so an unreadable mode lets songs count and logs a warning. All site-specific code is in the "AMQ adapters" section of the
 userscript; `window.AMQAP` exposes state and helpers for debugging.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.10.4
+// @version      0.11.0
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -19,7 +19,7 @@
   'use strict';
 
   const GAME = 'Anime Music Quiz';
-  const CLIENT_VERSION = 7;
+  const CLIENT_VERSION = 8;
   const TYPES = { 1: 'Opening', 2: 'Ending', 3: 'Insert Song' };
   const DECADES = ['1980s & Earlier', '1990s', '2000s', '2010s', '2020s'];
   const DECADE_YEARS = { '1980s & Earlier': [null, 1989], '1990s': [1990, 1999], '2000s': [2000, 2009], '2010s': [2010, 2019], '2020s': [2020, null] };
@@ -77,7 +77,7 @@
     checked: new Set(), received: [], queued: [], scouts: {}, scoutMode: load('scout', 'items'), warned: new Set(),
     unlocks: null, fragments: 0, prog: freshProgress(), game: freshGame(), pending: [],
     goalSent: false, lastPayload: null, lastSong: '', log: [], chatMode: load('chat', 'mine'), connError: '',
-    songStart: 0, lastSubmit: 0, ringSource: Math.floor(Math.random() * 2 ** 31),
+    songStart: 0, lastSubmit: 0, songChoices: null, ringSource: Math.floor(Math.random() * 2 ** 31),
   };
 
   // ---------- AMQ adapters ----------
@@ -217,12 +217,30 @@
   const QUIZ_VIDEO = '#qpVideosInner video, #qpVideoContainer video'; // the clip shown once a song is revealed
   const CHAT_INPUT_ID = 'gcInput';
   const AP_COMMAND = /^\/ap(?:\s+([\s\S]*))?$/i;
-  /** Calls `onSubmit` when an answer is locked in with Enter (also picking a suggestion with Enter). */
+  const CHOICE_TEXT = '#qpMultipleChoiceContainer .qpMultipleChoiceEntryText'; // the names on the multiple choice options
+  const CHOICE = '#qpMultipleChoiceContainer [class*="qpMultipleChoiceEntry"]'; // any part of an option
+  /** Calls `onSubmit` when an answer is locked in: Enter in the answer box (also picking a suggestion with Enter) or a
+   *  click on a multiple choice option. */
   function hookAnswerInput(onSubmit) {
     if (!document.addEventListener) return;
     document.addEventListener('keydown', ev => {
       if (ev.key === 'Enter' && ev.target && ev.target.id === ANSWER_INPUT_ID) onSubmit();
     }, true);
+    document.addEventListener('click', ev => {
+      if (ev.target && typeof ev.target.closest === 'function' && ev.target.closest(CHOICE)) onSubmit();
+    }, true);
+  }
+  /** Whether "play next song" gives this player multiple choice options (AMQ sends their names, or null for the
+   *  answer box). null when the payload doesn't say. */
+  function songHasChoices(p) {
+    if (!p || typeof p !== 'object' || !('multipleChoiceNames' in p)) return null;
+    const names = p.multipleChoiceNames;
+    return Array.isArray(names) ? names.length > 0 : !!names;
+  }
+  /** Whether AMQ shows the multiple choice options right now (also when taken as a hint mid-song), or null. */
+  function choicesShown() {
+    const mc = typeof quiz !== 'undefined' && quiz && quiz.answerInput && quiz.answerInput.multipleChoice;
+    return mc && typeof mc.displayed === 'boolean' ? mc.displayed : null;
   }
   function amqChat(text) { // returns false if AMQ's chat is unavailable
     if (typeof gameChat === 'undefined' || !gameChat || typeof gameChat.systemMessage !== 'function') return false;
@@ -403,6 +421,7 @@
     return Math.min(GUESS_TIME_MAX, gt.start + gt.step * S.unlocks.clocks);
   }
   const songSource = () => (S.data && S.data.song_source) || 'any';
+  const answerMode = () => (S.data && S.data.answer_mode) || 'any';
   /** Returns null when the song counts, otherwise a short reason. */
   function ineligibleReason(song, own, room = {}) {
     const U = S.unlocks;
@@ -413,6 +432,9 @@
       return `${room.samplePoint} sample point locked`;
     }
     if (songSource() === 'own_list' && !own.onList) return 'not on your list';
+    // unknown (null) never blocks a song, like the unreadable song fields below
+    if (answerMode() === 'typing' && own.multipleChoice === true) return 'multiple choice not counted';
+    if (answerMode() === 'multiple_choice' && own.multipleChoice === false) return 'typed answers not counted';
     if (gated('Song Types') && !U.types.has(song.type)) return song.type ? `${song.type} locked` : 'unknown song type';
     if (gated('Decades') && !U.decades.has(song.decade)) return song.decade ? `${song.decade} locked` : 'unknown year';
     if (gated('Seasons') && !U.seasons.has(song.season)) return song.season ? `${song.season} locked` : 'unknown season';
@@ -830,8 +852,9 @@
     let st = document.getElementById('amq-ap-trap-css');
     if (!st) { st = document.createElement('style'); st.id = 'amq-ap-trap-css'; (document.head || document.body).appendChild(st); }
     st.textContent = [
-      T.reverse > 0 ? `${ANSWER_INPUT}{direction:rtl!important;unicode-bidi:bidi-override!important}` : '',
-      T.tiny > 0 ? `${ANSWER_INPUT}{font-size:5px!important}` : '',
+      T.reverse > 0 ? `${ANSWER_INPUT}{direction:rtl!important;unicode-bidi:bidi-override!important}` +
+        `${CHOICE_TEXT}{direction:rtl!important;unicode-bidi:bidi-override!important}` : '',
+      T.tiny > 0 ? `${ANSWER_INPUT}{font-size:5px!important}${CHOICE_TEXT}{font-size:5px!important}` : '',
       T.blind > 0 ? `${QUIZ_VIDEO}{visibility:hidden!important}` : '',
     ].join('\n');
     if (T.mute > 0 || trapMuted) {
@@ -855,7 +878,10 @@
   }
   const warnOnce = (key, text) => { if (!S.warned.has(key)) { S.warned.add(key); say(text); } };
   /** Says once when a locked category's room setting or song field can't be read (songs then count anyway). */
-  function warnUnreadable(song, room) {
+  function warnUnreadable(song, own, room) {
+    if (answerMode() !== 'any' && own.multipleChoice === null) {
+      warnOnce('answer', "Can't tell whether you had multiple choice, so songs count either way.");
+    }
     if (gated('Guess Time') && room.guessTime === null) {
       warnOnce('guess', "Can't read the room's guess time, so songs count regardless. Keep it within your allowed time.");
     }
@@ -928,7 +954,7 @@
     const origin = songSource() === 'any' ? null : own.onList ? 'on list' : 'off list';
     const sample = gated('Sample Point') && room.samplePoint ? `${room.samplePoint} sample` : null;
     const extra = [gated('Seasons') && song.season, gated('Song Category') && song.category, gated('Anime Score') && song.scoreTier && `${song.scoreTier} anime`,
-      song.dub && 'dub', song.rebroadcast && 'rebroadcast'];
+      song.dub && 'dub', song.rebroadcast && 'rebroadcast', own.multipleChoice === true && 'multiple choice'];
     return [song.type, song.decade, song.format, song.tier, ...extra, sample, origin].filter(Boolean).join(' · ') +
       ' → ' + status;
   }
@@ -941,18 +967,27 @@
     notify(`${g.ignored} of ${g.songs} songs this game didn't count (most often: ${top}). ` +
       'Use Apply to room in the panel or /ap lobby to match your unlocks.');
   }
+  /** Whether the song just answered had multiple choice: true, false, or null when AMQ didn't say. */
+  function answeredWithChoices() {
+    const had = S.songChoices, shown = choicesShown();
+    S.songChoices = null;
+    if (had || shown) return true;
+    return had === false || shown === false ? false : null;
+  }
   function onAnswerResults(p) {
     S.lastPayload = p;
     const secs = answerSeconds();
+    const choices = answeredWithChoices();
     if (!(S.connected || S.offline) || !S.ready) return;
     const own = extractOwn(p);
     if (!own) return;
+    own.multipleChoice = choices;
     const song = extractSong(p);
     const g = S.game;
     g.songs++; S.prog.answered++;
     g.standing = { rank: own.rank, count: own.count };
     const room = { guessTime: roomGuessTime(), samplePoint: roomSamplePoint() };
-    warnUnreadable(song, room);
+    warnUnreadable(song, own, room);
     const reason = ineligibleReason(song, own, room);
     let status;
     if (reason) {
@@ -987,7 +1022,9 @@
     saveProg();
   }
   function onQuizReady() { S.game = freshGame(); applyTraps(); render(); }
-  function onSongStart() { S.songStart = Date.now(); S.lastSubmit = 0; applyTraps(); }
+  function onSongStart(p) { S.songStart = Date.now(); S.lastSubmit = 0; S.songChoices = songHasChoices(p); applyTraps(); }
+  /** Multiple choice taken as a hint shows up only during the song, so look once more when guessing ends. */
+  function onGuessOver() { if (choicesShown()) S.songChoices = true; }
 
   // ---------- checks ----------
   // checks whose progress is a counter in S.prog[kind][key]
@@ -1185,6 +1222,8 @@
       ...(gated('Anime Score') ? [['Anime score', `${Math.max(2, scoreFloor(SCORE_TIERS[maxScoreTier()]))}–10`]] : []),
       ...(gated('Dub & Rebroadcast') ? [['Dubs / rebroadcasts', `${U.dub ? 'on' : 'off'} / ${U.rebroadcast ? 'on' : 'off'}`]] : []),
       ['Song selection', { any: 'any', own_list: 'watched only (your list)', mixed: 'mix of watched and random' }[songSource()] || 'any'],
+      ...(answerMode() !== 'any' ? [['Answering (yours, not a room filter)',
+        answerMode() === 'typing' ? 'typing only, no multiple choice' : 'multiple choice only']] : []),
     ];
   }
 
@@ -1528,6 +1567,7 @@
     listen('quiz ready', onQuizReady);
     listen('play next song', onSongStart); // AMQ resets volume per song, so this also re-asserts the mute trap
     listen('quiz over', onQuizOver);
+    listen('guess phase over', onGuessOver);
     hookChatInput(apCommand);
     hookAnswerInput(() => { S.lastSubmit = Date.now(); });
     let lastEcho = { text: null, at: 0 }; // both chat events can carry the same message; never spend a hint twice

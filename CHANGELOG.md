@@ -4,6 +4,23 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
+## [0.11.0] - 2026-11-01
+
+Client version 8: seeds from this version need the 0.11.0 userscript (older ones say so when they connect). No item
+or location changed, and with the default `answer_mode` seeds come out the same as with 0.10.4.
+
+### Added
+- `answer_mode` option: `any` (default), `typing` or `multiple_choice`. With `typing`, songs where you had AMQ's
+  multiple choice options (also taken as a hint during the song) are ignored; with `multiple_choice`, typed ones are.
+  Ignored songs don't break streaks, the panel marks songs answered from multiple choice, and the lobby guide lists
+  the mode as a reminder (it is your own setting, not a room filter). If the client can't tell how a song was
+  answered, the song counts and the log says so once.
+- The Sweaty preset is typing only.
+
+### Changed
+- Client: a click on a multiple choice option locks in your answer for Quick Draw, like Enter in the answer box.
+- Client: Reverse Typing and Tiny Text Traps also reach the multiple choice options.
+
 ## [0.10.4] - 2026-11-01
 
 Client version 7 (unchanged). No changes to generation: seeds come out the same as with 0.10.3. Only the panel
