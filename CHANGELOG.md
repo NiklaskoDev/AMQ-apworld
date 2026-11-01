@@ -4,6 +4,19 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
+## [0.11.1] - 2026-11-01
+
+Client version 8 (unchanged). No changes to generation: seeds come out the same as with 0.11.0.
+
+### Fixed
+- Client: Apply to room (and `/ap lobby`) now sets the room's multiple choice to match `answer_mode`: off for
+  `typing`, on for `multiple_choice`, untouched for `any`. The lobby guide shows it as "Multiple choice". The
+  setting's name hasn't been checked against the live site, so the client looks for an on/off setting named like
+  `multipleChoice`, at the top level or among the room's `modifiers`; if there is none, the result lists
+  "multiple choice (off)" or "(on)" under set by hand.
+- Client: Apply to room also finds the dub and rebroadcast switches among the room's `modifiers`, where AMQ keeps
+  its other on/off settings, instead of only at the top level.
+
 ## [0.11.0] - 2026-11-01
 
 Client version 8: seeds from this version need the 0.11.0 userscript (older ones say so when they connect). No item

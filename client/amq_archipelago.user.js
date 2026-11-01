@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.11.0
+// @version      0.11.1
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -270,6 +270,19 @@
   }
 
   const FORMAT_KEYS = { TV: 'tv', Movie: 'movie', OVA: 'ova', ONA: 'ona', Special: 'special' };
+  /** [owner, key] of an on/off room setting, at the top level or among AMQ's `modifiers`, or null. `match` is a key
+   *  name or a pattern for one; a negated name (disable..., no...) is skipped so that true always means on. */
+  function roomFlag(s, match) {
+    const fits = k => (typeof match === 'string' ? k === match : match.test(k) && !/^(?:disable|no|hide|block)/i.test(k));
+    for (const owner of [s, s.modifiers]) {
+      if (!owner || typeof owner !== 'object') continue;
+      const key = Object.keys(owner).find(k => fits(k) && typeof owner[k] === 'boolean');
+      if (key) return [owner, key];
+    }
+    return null;
+  }
+  // the room's multiple choice switch has not been checked against the live site, so it is found by name
+  const MULTIPLE_CHOICE_KEY = /multiple.?choice|multi.?choice/i;
   /** Rewrites a copy of AMQ's room settings to match `want`. Categories left out of `want` are not touched. */
   function lobbySettingsFor(s, want) {
     const done = [], manual = [];
@@ -355,7 +368,13 @@
     }
     for (const [k, key, label] of [['dub', 'dubSongs', 'dub songs'], ['rebroadcast', 'rebroadcastSongs', 'rebroadcast songs']]) {
       if (want[k] === undefined) continue;
-      if (typeof s[key] === 'boolean') { s[key] = want[k]; done.push(label); } else manual.push(label);
+      const flag = roomFlag(s, key);
+      if (flag) { flag[0][flag[1]] = want[k]; done.push(label); } else manual.push(label);
+    }
+    if (want.multipleChoice !== undefined) {
+      const flag = roomFlag(s, MULTIPLE_CHOICE_KEY);
+      if (flag) { flag[0][flag[1]] = want.multipleChoice; done.push('multiple choice'); }
+      else manual.push(`multiple choice (${want.multipleChoice ? 'on' : 'off'})`);
     }
     if (want.watchedOnly) {
       const sel = s.songSelection;
@@ -1126,6 +1145,7 @@
     if (gated('Anime Score')) want.score = [scoreFloor(SCORE_TIERS[maxScoreTier()]), 10];
     if (gated('Dub & Rebroadcast')) { want.dub = U.dub; want.rebroadcast = U.rebroadcast; }
     if (songSource() === 'own_list') want.watchedOnly = true;
+    if (answerMode() !== 'any') want.multipleChoice = answerMode() === 'multiple_choice';
     return want;
   }
 
@@ -1222,8 +1242,7 @@
       ...(gated('Anime Score') ? [['Anime score', `${Math.max(2, scoreFloor(SCORE_TIERS[maxScoreTier()]))}–10`]] : []),
       ...(gated('Dub & Rebroadcast') ? [['Dubs / rebroadcasts', `${U.dub ? 'on' : 'off'} / ${U.rebroadcast ? 'on' : 'off'}`]] : []),
       ['Song selection', { any: 'any', own_list: 'watched only (your list)', mixed: 'mix of watched and random' }[songSource()] || 'any'],
-      ...(answerMode() !== 'any' ? [['Answering (yours, not a room filter)',
-        answerMode() === 'typing' ? 'typing only, no multiple choice' : 'multiple choice only']] : []),
+      ...(answerMode() !== 'any' ? [['Multiple choice', answerMode() === 'typing' ? 'off (typing only)' : 'on (multiple choice only)']] : []),
     ];
   }
 

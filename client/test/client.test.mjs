@@ -826,6 +826,9 @@ test('dubs and rebroadcasts: ignored until their pass, then counted toward their
   const room = { dubSongs: true, rebroadcastSongs: true };
   api.lobbySettingsFor(room, api.lobbyWish());
   assert.deepEqual(room, { dubSongs: false, rebroadcastSongs: false });
+  const modded = { modifiers: { dubSongs: true, rebroadcastSongs: true, skipGuessing: true } };
+  api.lobbySettingsFor(modded, api.lobbyWish());
+  assert.deepEqual(modded, { modifiers: { dubSongs: false, rebroadcastSongs: false, skipGuessing: true } }, 'also among modifiers');
   ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Dub Pass', 'Rebroadcast Pass']) }]);
   fire('answer results', answer({ extra: { isDub: true, isRebroadcast: false } }));
   fire('answer results', answer({ extra: { isDub: false, isRebroadcast: true } }));
@@ -1197,8 +1200,7 @@ test('answer_mode typing ignores songs with multiple choice, also taken as a hin
   for (let i = 0; i < 2; i++) { fire('play next song', {}); fire('answer results', answer()); }
   assert.equal(S.prog.total, 3);
   assert.equal(S.log.filter(l => /Can't tell whether you had multiple choice/.test(l)).length, 1);
-  assert.deepEqual([...api.lobbyGuide().find(([k]) => /Answering/.test(k))], ['Answering (yours, not a room filter)',
-    'typing only, no multiple choice']);
+  assert.deepEqual([...api.lobbyGuide().find(([k]) => /Multiple choice/.test(k))], ['Multiple choice', 'off (typing only)']);
 });
 
 test('answer_mode multiple_choice ignores typed songs, and a click on an option times Quick Draw', async () => {
@@ -1230,4 +1232,29 @@ test('answer_mode any counts both, and traps reach the multiple choice options',
   const css = sandbox.document.getElementById('amq-ap-trap-css').textContent;
   assert.match(css, /#qpMultipleChoiceContainer \.qpMultipleChoiceEntryText\{direction:rtl/);
   assert.match(css, /#qpMultipleChoiceContainer \.qpMultipleChoiceEntryText\{font-size:5px/);
+});
+
+test('apply to room switches the room\'s multiple choice setting to match answer_mode, or says to set it by hand', async () => {
+  const typing = await connected({ slot: { answer_mode: 'typing' } });
+  const top = { multipleChoice: true, modifiers: { skipGuessing: true } };
+  let r = typing.api.lobbySettingsFor(top, typing.api.lobbyWish());
+  assert.equal(top.multipleChoice, false);
+  assert.ok(r.done.includes('multiple choice'));
+  const nested = { modifiers: { noDropdown: false, multipleChoiceEnabled: true } };
+  typing.api.lobbySettingsFor(nested, typing.api.lobbyWish());
+  assert.deepEqual(nested, { modifiers: { noDropdown: false, multipleChoiceEnabled: false } });
+  const negated = { disableMultipleChoice: false };
+  r = typing.api.lobbySettingsFor(negated, typing.api.lobbyWish());
+  assert.deepEqual(negated, { disableMultipleChoice: false }, 'a "disable" switch would flip the meaning, so it is left alone');
+  assert.ok(r.manual.includes('multiple choice (off)'));
+
+  const mc = await connected({ slot: { answer_mode: 'multiple_choice' } });
+  const room = { modifiers: { multipleChoice: false } };
+  mc.api.lobbySettingsFor(room, mc.api.lobbyWish());
+  assert.equal(room.modifiers.multipleChoice, true);
+  assert.ok(mc.api.lobbySettingsFor({}, mc.api.lobbyWish()).manual.includes('multiple choice (on)'));
+  assert.deepEqual([...mc.api.lobbyGuide().find(([k]) => /Multiple choice/.test(k))], ['Multiple choice', 'on (multiple choice only)']);
+
+  const any = await connected();
+  assert.equal(any.api.lobbyWish().multipleChoice, undefined, 'answer_mode any leaves the room alone');
 });

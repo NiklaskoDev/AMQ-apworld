@@ -53,8 +53,9 @@ Archipelago MultiServer does unless it is given a certificate) fails with "your 
   `/ap next` suggests what to play and `/ap lobby next` focuses the room on it.
 * With `song_source: own_list` or `mixed`, link your anime list in AMQ and set the lobby's song selection to
   "watched" or a mix. The panel marks each song as "on list" or "off list".
-* With `answer_mode: typing` or `multiple_choice`, switch AMQ's multiple choice off or on for yourself to match.
-  Songs answered the other way are ignored, and the panel marks songs where you had multiple choice.
+* With `answer_mode: typing` or `multiple_choice`, Apply to room also switches the room's multiple choice off or on
+  (if it lists "multiple choice" under set by hand, switch it yourself). Songs answered the other way are ignored,
+  and the panel marks songs where you had multiple choice.
 * Play solo or with friends. Spectating does nothing.
 * **Open checks** lists what is left, your progress, which stage still needs fragments and what each check holds.
 * The panel shows each song's result, for example `Opening · 2010s · TV · Medium → counted` or
