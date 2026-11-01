@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.11.1
+// @version      0.12.0
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -76,7 +76,7 @@
     seed: '', team: 0, slot: 0, slotName: '', data: null, players: {}, slotInfo: {}, games: {},
     checked: new Set(), received: [], queued: [], scouts: {}, scoutMode: load('scout', 'items'), warned: new Set(),
     unlocks: null, fragments: 0, prog: freshProgress(), game: freshGame(), pending: [],
-    goalSent: false, lastPayload: null, lastSong: '', log: [], chatMode: load('chat', 'mine'), connError: '',
+    goalSent: false, quizSeen: false, lastPayload: null, lastSong: '', log: [], logHtml: [], chatMode: load('chat', 'mine'), connError: '',
     songStart: 0, lastSubmit: 0, songChoices: null, ringSource: Math.floor(Math.random() * 2 ** 31),
   };
 
@@ -247,9 +247,10 @@
     const mc = typeof quiz !== 'undefined' && quiz && quiz.answerInput && quiz.answerInput.multipleChoice;
     return mc && typeof mc.displayed === 'boolean' ? mc.displayed : null;
   }
-  function amqChat(text) { // returns false if AMQ's chat is unavailable
+  /** Posts a system message to AMQ's chat, which renders it as HTML. Returns false if the chat is unavailable. */
+  function amqChat(html) {
     if (typeof gameChat === 'undefined' || !gameChat || typeof gameChat.systemMessage !== 'function') return false;
-    try { gameChat.systemMessage(esc(text)); return true; } catch (e) { return false; }
+    try { gameChat.systemMessage(html); return true; } catch (e) { return false; }
   }
   /** Intercepts "/ap ..." typed into AMQ's chat before AMQ sends it to the room. */
   function hookChatInput(onCommand) {
@@ -463,16 +464,27 @@
 
   // ---------- Archipelago connection ----------
   const send = msgs => { if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(msgs)); };
-  function say(text) {
-    S.log.push(text);
-    if (S.log.length > 80) S.log.shift();
+  // Archipelago's text colors (players, items by class, locations, ...), readable on AMQ's dark chat
+  const AP_COLORS = { red: '#ff6b6b', green: '#00ff7f', yellow: '#fafad2', blue: '#6495ed', magenta: '#ee00ee',
+    cyan: '#00eeee', slateblue: '#8fa6f0', plum: '#af99ef', salmon: '#fa8072', orange: '#ffa64d', white: '#ffffff' };
+  // what the client's own messages are about
+  const TONES = { trap: 'salmon', boost: 'slateblue', good: 'green', warn: 'orange', death: 'red' };
+  /** Escaped text, in an Archipelago color when one is named. */
+  const paint = (text, color) => (AP_COLORS[color] ? `<span style="color:${AP_COLORS[color]}">${esc(text)}</span>` : esc(text));
+  /** Logs a line for the panel, as text and (colored) HTML. */
+  function say(text, html = esc(text)) {
+    S.log.push(text); S.logHtml.push(html);
+    if (S.log.length > 80) { S.log.shift(); S.logHtml.shift(); }
     render();
   }
-  const chatPost = text => amqChat('[AP] ' + text);
-  /** Logs and, unless the AMQ chat bridge is off, also posts to AMQ's chat. */
-  function notify(text) {
-    say(text);
-    if (S.chatMode !== 'off') chatPost(text);
+  const AP_TAG = `<span style="color:${AP_COLORS.plum};font-weight:bold">[AP]</span> `;
+  /** Posts escaped HTML to AMQ's chat behind a colored [AP] tag. */
+  const chatPost = html => amqChat(AP_TAG + html);
+  /** Logs and, unless the AMQ chat bridge is off, also posts to AMQ's chat, colored by `tone` (see TONES). */
+  function notify(text, tone) {
+    const html = paint(text, TONES[tone]);
+    say(text, html);
+    if (S.chatMode !== 'off') chatPost(html);
   }
   const NOT_CONNECTED = 'Connect to Archipelago first.';
   const storeKey = k => `${k}_${S.seed}_${S.team}_${S.slot}`;
@@ -559,8 +571,8 @@
         say('Connection refused: ' + (m.errors || ['unknown']).join(', '));
         break;
       case 'Connected': {
-        // after a dropped connection to the same slot, the game in progress carries on
-        const resume = S.offline && S.team === m.team && S.slot === m.slot && S.lastSeed === S.seed;
+        // after a reconnect to the same slot (dropped or not), the game in progress carries on
+        const resume = S.team === m.team && S.slot === m.slot && S.lastSeed === S.seed;
         S.connected = true; S.ready = false; S.offline = false; S.goalSent = false; S.lastSeed = S.seed;
         S.team = m.team; S.slot = m.slot; S.slotName = S.conn.slot; S.data = m.slot_data || {};
         S.data.gated = S.data.gated || [];
@@ -571,7 +583,8 @@
         S.checked = new Set(m.checked_locations || []);
         S.received = []; S.queued = []; S.scouts = {};
         rebuildUnlocks();
-        if (!resume) S.game = freshGame();
+        // after a page reload, so does the saved one, unless AMQ has started a new game since
+        if (!resume) S.game = S.quizSeen ? freshGame() : restoreGame(load(storeKey('game'), null));
         if ((S.data.client_version || 0) > CLIENT_VERSION) say('This seed expects a newer userscript. Please update.');
         const tags = [S.data.death_link && 'DeathLink', S.data.trap_link && 'TrapLink', S.data.ring_link && 'RingLink']
           .filter(Boolean);
@@ -610,9 +623,10 @@
         if ((m.checked_locations || []).length) evaluate(); // a collect can finish a check-based goal
         break;
       case 'PrintJSON': {
-        const text = printJson(m.data || []);
-        say(text);
-        if (chatWants(m)) chatPost(text);
+        const parts = printParts(m.data || []);
+        const html = parts.map(([t, color]) => paint(t, color)).join('');
+        say(parts.map(([t]) => t).join(''), html);
+        if (chatWants(m)) chatPost(html);
         break;
       }
       case 'Bounced':
@@ -662,16 +676,25 @@
 
   const playerName = slot => S.players[slot] || `Player ${slot}`;
   const gameOf = slot => (S.slotInfo[slot] && S.slotInfo[slot].game) || GAME;
-  function printJson(parts) {
+  const itemColor = flags => (flags & 1 ? 'plum' : flags & 2 ? 'slateblue' : flags & 4 ? 'salmon' : 'cyan');
+  const HINT_COLORS = { 10: 'slateblue', 20: 'salmon', 30: 'plum', 40: 'green' }; // no priority, avoid, priority, found
+  /** A PrintJSON message as [text, color] pieces: you in magenta, other players yellow, items by class, places green. */
+  function printParts(parts) {
+    const lookup = (kind, id, slot) => ((S.games[gameOf(slot)] || {})[kind] || {})[id] || `#${id}`;
     return parts.map(p => {
-      const lookup = (kind, id, slot) => ((S.games[gameOf(slot)] || {})[kind] || {})[id] || `#${id}`;
       switch (p.type) {
-        case 'player_id': return playerName(+p.text);
-        case 'item_id': return lookup('items', p.text, p.player);
-        case 'location_id': return lookup('locations', p.text, p.player);
-        default: return p.text || '';
+        case 'player_id': return [playerName(+p.text), +p.text === S.slot ? 'magenta' : 'yellow'];
+        case 'player_name': return [p.text || '', 'yellow'];
+        case 'item_id': return [lookup('items', p.text, p.player), itemColor(p.flags)];
+        case 'item_name': return [p.text || '', itemColor(p.flags)];
+        case 'location_id': return [lookup('locations', p.text, p.player), 'green'];
+        case 'location_name': return [p.text || '', 'green'];
+        case 'entrance_name': return [p.text || '', 'blue'];
+        case 'hint_status': return [p.text || '', HINT_COLORS[p.hint_status]];
+        case 'color': return [p.text || '', p.color];
+        default: return [p.text || '', null];
       }
-    }).join('');
+    });
   }
 
   // ---------- AMQ chat bridge ----------
@@ -684,7 +707,7 @@
     const mine = m.receiving === S.slot || (m.item && m.item.player === S.slot) || m.slot === S.slot;
     return mine && CHAT_MINE.includes(m.type);
   }
-  function reply(text) { say(text); chatPost(text); }
+  function reply(text) { say(text); chatPost(esc(text)); }
   /** "/ap ..." from AMQ's chat: local commands, everything else goes to the Archipelago room (so !hint etc. work). */
   function apCommand(text) {
     if (!text || /^help$/i.test(text)) {
@@ -737,18 +760,18 @@
   function applyOneShot(name) {
     const trap = trapEffect(name);
     if (trap) {
-      notify(trap);
+      notify(trap, 'trap');
       if (S.data.trap_link) bounce('TrapLink', { source: S.slotName, trap_name: name });
     }
-    else if (name === 'Encore Ticket') { S.prog.encore++; notify('Encore Ticket: your next counted answer is worth 2.'); }
-    else if (name === 'Streak Shield') { S.prog.shield++; notify('Streak Shield ready.'); }
-    else if (name === 'Mulligan') { S.prog.mulligan++; notify('Mulligan: your next eligible miss is forgiven as if the song never played.'); }
-    else if (name === 'Spotlight') { S.prog.spotlight++; notify('Spotlight: your next counted answer counts twice toward its category checks.'); }
-    else if (name === 'Liner Notes') { S.prog.linerNotes++; notify('Liner Notes: a free hint for one of your open checks.'); }
+    else if (name === 'Encore Ticket') { S.prog.encore++; notify('Encore Ticket: your next counted answer is worth 2.', 'boost'); }
+    else if (name === 'Streak Shield') { S.prog.shield++; notify('Streak Shield ready.', 'boost'); }
+    else if (name === 'Mulligan') { S.prog.mulligan++; notify('Mulligan: your next eligible miss is forgiven as if the song never played.', 'boost'); }
+    else if (name === 'Spotlight') { S.prog.spotlight++; notify('Spotlight: your next counted answer counts twice toward its category checks.', 'boost'); }
+    else if (name === 'Liner Notes') { S.prog.linerNotes++; notify('Liner Notes: a free hint for one of your open checks.', 'boost'); }
     else if (name === 'Hype Cheer') {
       S.prog.total += 2;
       shortenTraps();
-      notify('Hype Cheer! +2 milestone progress, and active traps end a song sooner.');
+      notify('Hype Cheer! +2 milestone progress, and active traps end a song sooner.', 'boost');
     }
     applyTraps();
   }
@@ -799,7 +822,7 @@
     if (!mine) { say(`TrapLink: ${d.trap_name} from ${d.source || 'someone'} has no match here.`); return; }
     const text = trapEffect(mine);
     applyTraps(); saveProg();
-    notify(`TrapLink from ${d.source || 'someone'} (${d.trap_name}): ${text}`);
+    notify(`TrapLink from ${d.source || 'someone'} (${d.trap_name}): ${text}`, 'trap');
   }
 
   // ---------- RingLink ----------
@@ -824,9 +847,22 @@
     bounce('RingLink', { source: S.ringSource, amount });
   }
 
+  /** The game in progress as JSON (its sets as lists). */
+  const gameSnapshot = () => Object.fromEntries(Object.entries(S.game).map(([k, v]) => [k, v instanceof Set ? [...v] : v]));
+  /** A saved game in progress, or a fresh game if there is none. */
+  function restoreGame(saved) {
+    const g = freshGame();
+    if (!saved || typeof saved !== 'object') return g;
+    for (const [k, v] of Object.entries(saved)) {
+      if (k in g) g[k] = g[k] instanceof Set ? new Set(Array.isArray(v) ? v : []) : v;
+    }
+    return g;
+  }
+  /** Saves progress (in the browser and on the server) and the game in progress (in the browser, for a reload). */
   function saveProg() {
     if (!S.ready) return;
     save(storeKey('prog'), S.prog);
+    save(storeKey('game'), gameSnapshot());
     send([{ cmd: 'Set', key: dsKey(), default: {}, want_reply: false, operations: [{ operation: 'replace', value: S.prog }] }]);
   }
 
@@ -837,7 +873,7 @@
     const amnesty = S.data.death_link_amnesty || 0;
     if (S.prog.deathCharges < amnesty) {
       S.prog.deathCharges++;
-      notify(`Death Link amnesty: ${cause} Forgiven (${amnesty - S.prog.deathCharges} left before one is sent).`);
+      notify(`Death Link amnesty: ${cause} Forgiven (${amnesty - S.prog.deathCharges} left before one is sent).`, 'warn');
       return;
     }
     S.prog.deathCharges = 0;
@@ -852,7 +888,7 @@
     S.game.streak = 0;
     S.prog.traps.mute += 1;
     applyTraps(); saveProg();
-    notify(`Death Link from ${d.source || 'someone'}${d.cause ? `: ${d.cause}` : ''} Streak wiped, next song muted.`);
+    notify(`Death Link from ${d.source || 'someone'}${d.cause ? `: ${d.cause}` : ''} Streak wiped, next song muted.`, 'death');
   }
 
   // ---------- traps (cosmetic only: CSS and the volume toggle) ----------
@@ -975,7 +1011,7 @@
     g.lobbyWarned = true;
     const top = Object.entries(g.reasons).sort((a, b) => b[1] - a[1])[0][0];
     notify(`${g.ignored} of ${g.songs} songs this game didn't count (most often: ${top}). ` +
-      'Use Apply to room in the panel or /ap lobby to match your unlocks.');
+      'Use Apply to room in the panel or /ap lobby to match your unlocks.', 'warn');
   }
   /** Whether the song just answered had multiple choice: true, false, or null when AMQ didn't say. A Typing room can
    *  still show the choices as a hint, and in a Mix room only the song itself tells. */
@@ -1032,7 +1068,11 @@
     S.game = freshGame();
     saveProg();
   }
-  function onQuizReady() { S.game = freshGame(); applyTraps(); render(); }
+  function onQuizReady() {
+    S.game = freshGame(); S.quizSeen = true;
+    if (S.ready) save(storeKey('game'), gameSnapshot());
+    applyTraps(); render();
+  }
   function onSongStart(p) { S.songStart = Date.now(); S.lastSubmit = 0; S.songChoices = songHasChoices(p); applyTraps(); }
   /** Multiple choice taken as a hint shows up only during the song, so look once more when guessing ends. */
   function onGuessOver() { if (choicesShown()) S.songChoices = true; }
@@ -1096,7 +1136,7 @@
     if (D.goal === 'finale' && !S.prog.finaleDone && S.fragments >= D.fragments_required &&
         g.eligible >= D.finale_songs && g.eligibleCorrect * 100 >= D.finale_accuracy * g.eligible) {
       S.prog.finaleDone = true;
-      notify('Grand Finale cleared!');
+      notify('Grand Finale cleared!', 'good');
       saveProg();
     }
     const [goalDone, goalTotal] = goalChecks();
@@ -1105,7 +1145,7 @@
     if (!S.goalSent && S.fragments >= D.fragments_required && goalMet) {
       S.goalSent = true;
       send([{ cmd: 'StatusUpdate', status: 30 }]);
-      notify('Goal complete!');
+      notify('Goal complete!', 'good');
     }
     render();
   }
@@ -1172,7 +1212,8 @@
   /** Open checks the room can be focused on, closest to done first. */
   function nextUp(limit) {
     if (!S.data || !S.unlocks) return [];
-    return S.data.checks.filter(c => !S.checked.has(c.id) && !stageLock(c) && focusWish(c))
+    const out = ruledOut();
+    return S.data.checks.filter(c => !S.checked.has(c.id) && !out.has(c.id) && !stageLock(c) && focusWish(c))
       .map(c => { const [a, b] = progressOf(c, false); return { c, left: b - Math.min(a, b), ratio: Math.min(a, b) / b }; })
       .sort((x, y) => x.left - y.left || y.ratio - x.ratio).slice(0, limit).map(x => x.c);
   }
@@ -1251,6 +1292,269 @@
     return `${owner} ${name} (${kind})`;
   }
 
+  // ---------- anime list check ----------
+  // With song_source own_list only songs from your list count, so a check that needs a kind of song your list doesn't
+  // have (no Horror anime, no 1990s anime, ...) can never be done. This reads a list (every status but Planning), gets
+  // its songs from AnisongDB and genres and scores from AniList, and says which checks it rules out: before generating
+  // as names for exclude_locations, while playing on the open checks.
+  const LIST_SOURCES = { anilist: 'AniList', kitsu: 'Kitsu', mal: 'MyAnimeList export' };
+  const ANILIST = 'https://graphql.anilist.co';
+  const KITSU = 'https://kitsu.app/api/edge';
+  const ANISONGDB = 'https://anisongdb.com/api/mal_ids_request';
+  const ANILIST_STATUSES = ['CURRENT', 'REPEATING', 'COMPLETED', 'PAUSED', 'DROPPED'];
+  const KITSU_STATUSES = 'current,completed,on_hold,dropped';
+  const MAL_STATUSES = ['watching', 'completed', 'on-hold', 'dropped', '1', '2', '3', '4']; // text or number in exports
+  // checks whose progress depends on what songs exist, so a list can rule them out
+  const LIST_KINDS = ['type', 'decade', 'genre', 'format', 'rarity', 'season', 'category', 'score', 'dub', 'years',
+    'game_types', 'game_decades', 'game_genres', 'game_seasons'];
+  const LC = { source: load('list_source', 'anilist'), user: load('list_user', ''), file: null, busy: false, note: '',
+    error: '', result: load('list_result', null) };
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function listNote(text) { LC.note = text; render(); }
+
+  /** Every check any YAML can have that a list can rule out, named as the world names them (a world test compares). */
+  function everyListCheck() {
+    const out = [], add = (name, kind, key, n) => out.push({ name, kind, key, n });
+    for (const t of Object.values(TYPES)) for (const n of [1, 10, 25]) add(n === 1 ? `First Correct ${t}` : `${t} Specialist: ${n} Correct`, 'type', t, n);
+    for (const d of DECADES) for (const n of [1, 10]) add(`Decade Dive: ${d} x${n}`, 'decade', d, n);
+    for (const g of GENRES) add(`Genre Scholar: ${g}`, 'genre', g, 3);
+    for (const f of FORMATS.slice(1)) add(`Format Hunter: ${f}`, 'format', f, 1);
+    for (const [t, n] of [['Easy', 10], ['Medium', 10], ['Hard', 1], ['Hard', 5], ['Brutal', 1], ['Brutal', 3]]) add(`${t} Guess-Rate Songs x${n}`, 'rarity', t, n);
+    add('Triple Threat: Opening, Ending and Insert in One Game', 'game_types', '', 3);
+    for (const n of [3, 5]) add(`Time Capsule: ${n} Decades in One Game`, 'game_decades', '', n);
+    for (const n of [5, 10]) add(`Genre Sampler: ${n} Genres in One Game`, 'game_genres', '', n);
+    for (const n of [10, 25]) add(`Year Collector: ${n} Different Years`, 'years', '', n);
+    for (const s of SEASONS) add(`${s} Listener: 10 Correct`, 'season', s, 10);
+    add('Four Seasons: Winter, Spring, Summer and Fall in One Game', 'game_seasons', '', SEASONS.length);
+    add('Standard Songs: 10 Correct', 'category', 'Standard', 10);
+    for (const c of CATEGORIES.slice(1)) for (const n of [1, 3]) add(`${c} Songs: ${n} Correct`, 'category', c, n);
+    for (const [t, n] of [['Acclaimed', 10], ['Well Liked', 10], ['Mixed', 5], ['Mixed', 10], ['Overlooked', 3]]) add(`${t} Anime Songs x${n}`, 'score', t, n);
+    for (const k of ['Dub', 'Rebroadcast']) for (const n of [1, 3]) add(n === 1 ? `First Correct ${k}` : `${k} Regular: ${n} Correct`, 'dub', k, n);
+    return out;
+  }
+
+  /** fetch() for JSON, waiting out a few rate limits (429). Errors carry the service's own message. */
+  async function getJson(url, init, what) {
+    for (let tries = 0; ; tries++) {
+      let res;
+      try { res = await fetch(url, init); } catch (e) { throw new Error(`Can't reach ${what}.`); }
+      if (res.status === 429 && tries < 3) {
+        const secs = Math.min(90, Math.max(1, +(res.headers && res.headers.get('Retry-After')) || 60));
+        listNote(`${what} asks to slow down, waiting ${secs}s...`);
+        await sleep(secs * 1000);
+        continue;
+      }
+      let json = null;
+      try { json = await res.json(); } catch (e) { /* not JSON */ }
+      const err = json && Array.isArray(json.errors) && json.errors[0];
+      if (!res.ok || err) throw new Error(`${what}: ${(err && (err.message || err.detail || err.title)) || `HTTP ${res.status}`}`);
+      return json;
+    }
+  }
+  const gql = (query, variables) => getJson(ANILIST, { method: 'POST', body: JSON.stringify({ query, variables }),
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' } }, 'AniList');
+  const MEDIA = 'idMal genres averageScore';
+  const metaOf = m => ({ genres: m.genres || [], score: m.averageScore });
+  /** An AniList user's list as { malId: { genres, score } }. */
+  async function anilistList(user) {
+    const meta = {};
+    for (let page = 1; ; page++) {
+      listNote(`AniList: reading the list, page ${page}...`);
+      const d = await gql(`query ($user: String, $statuses: [MediaListStatus], $page: Int) { Page(page: $page, perPage: 50) {
+        pageInfo { hasNextPage } mediaList(userName: $user, type: ANIME, status_in: $statuses) { media { ${MEDIA} } } } }`,
+      { user, statuses: ANILIST_STATUSES, page });
+      const P = d && d.data && d.data.Page;
+      if (!P) throw new Error('AniList sent no list.');
+      for (const e of P.mediaList || []) if (e && e.media && e.media.idMal) meta[e.media.idMal] = metaOf(e.media);
+      if (!P.pageInfo || !P.pageInfo.hasNextPage) return meta;
+    }
+  }
+  /** Genres and scores from AniList for MAL ids (lists from Kitsu or a MAL export). */
+  async function anilistMeta(ids) {
+    const meta = {};
+    for (let i = 0; i < ids.length; i += 50) {
+      listNote(`AniList: genres and scores, ${Math.min(i + 50, ids.length)} of ${ids.length} anime...`);
+      const d = await gql(`query ($ids: [Int]) { Page(perPage: 50) { media(idMal_in: $ids, type: ANIME) { ${MEDIA} } } }`,
+        { ids: ids.slice(i, i + 50) });
+      for (const m of (d && d.data && d.data.Page && d.data.Page.media) || []) if (m && m.idMal) meta[m.idMal] = metaOf(m);
+    }
+    return meta;
+  }
+  const KITSU_INIT = { headers: { Accept: 'application/vnd.api+json' } };
+  /** MAL ids on a Kitsu user's list, found by profile name (the end of their profile address) or display name. */
+  async function kitsuList(user) {
+    listNote('Kitsu: finding the user...');
+    const q = encodeURIComponent(user);
+    let found = await getJson(`${KITSU}/users?filter[slug]=${q}&fields[users]=name`, KITSU_INIT, 'Kitsu');
+    if (!found.data || !found.data.length) found = await getJson(`${KITSU}/users?filter[name]=${q}&fields[users]=name`, KITSU_INIT, 'Kitsu');
+    const id = found.data && found.data[0] && found.data[0].id;
+    if (!id) throw new Error(`Kitsu has no user called ${user}.`);
+    const ids = new Set();
+    let url = `${KITSU}/library-entries?filter[userId]=${id}&filter[kind]=anime&filter[status]=${KITSU_STATUSES}` +
+      '&include=anime.mappings&fields[libraryEntries]=anime&fields[anime]=mappings&fields[mappings]=externalSite,externalId&page[limit]=500';
+    for (let page = 1; url; page++) {
+      listNote(`Kitsu: reading the list, page ${page}...`);
+      const d = await getJson(url, KITSU_INIT, 'Kitsu');
+      for (const x of d.included || []) {
+        const a = x && x.type === 'mappings' && x.attributes;
+        if (a && a.externalSite === 'myanimelist/anime' && +a.externalId) ids.add(+a.externalId);
+      }
+      url = d.links && d.links.next;
+    }
+    return [...ids];
+  }
+  /** MAL ids in a list export (myanimelist.net/panel.php?go=export), without Plan to Watch. */
+  function malExportIds(xml) {
+    const ids = [];
+    for (const m of String(xml).matchAll(/<anime>([\s\S]*?)<\/anime>/g)) {
+      const id = /<series_animedb_id>\s*(\d+)/.exec(m[1]);
+      const status = /<my_status>\s*(?:<!\[CDATA\[)?\s*([^<\]]*)/.exec(m[1]);
+      if (id && status && MAL_STATUSES.includes(status[1].trim().toLowerCase())) ids.push(+id[1]);
+    }
+    return ids;
+  }
+  /** A MAL export's text, unpacking the .gz MAL hands out. */
+  async function readExport(file) {
+    if (!/\.gz$/i.test(file.name)) return file.text();
+    if (typeof DecompressionStream === 'undefined') throw new Error('this browser can\'t unpack .gz files, unpack it first');
+    return new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+  }
+  /** Every song AnisongDB has for these MAL ids. */
+  async function anisongdbSongs(ids) {
+    const songs = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      listNote(`AnisongDB: songs for ${Math.min(i + 500, ids.length)} of ${ids.length} anime...`);
+      const d = await getJson(ANISONGDB, { method: 'POST', body: JSON.stringify({ mal_ids: ids.slice(i, i + 500) }),
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-Client-Id': 'amqArchipelago' } }, 'AnisongDB');
+      if (!Array.isArray(d)) throw new Error('AnisongDB sent no song list.');
+      songs.push(...d);
+    }
+    return songs;
+  }
+
+  const num = v => (typeof v === 'number' && isFinite(v) ? v : typeof v === 'string' && v.trim() && isFinite(+v) ? +v : null);
+  /** The fields checks care about from one AnisongDB song (songType is "Opening 1", "Ending 2" or "Insert Song"). */
+  function adbSong(x) {
+    const t = x.songType;
+    const type = TYPES[t] || (typeof t === 'string' && { o: 'Opening', e: 'Ending', i: 'Insert Song' }[t.trim().charAt(0).toLowerCase()]) || null;
+    const ids = x.linked_ids || {};
+    const cat = firstSet(x, ['songCategory', 'category']);
+    return {
+      malId: num(ids.myanimelist !== undefined ? ids.myanimelist : x.malId), type,
+      vintage: x.animeVintage !== undefined ? x.animeVintage : x.vintage, format: formatOf(x.animeType),
+      difficulty: num(x.songDifficulty !== undefined ? x.songDifficulty : x.difficulty),
+      category: canon(CATEGORIES, cat && typeof cat === 'object' ? cat.name : cat),
+      dub: flagOf(x, ['isDub', 'dub']), rebroadcast: flagOf(x, ['isRebroadcast', 'rebroadcast']),
+    };
+  }
+  /** What a list's songs offer, as counts of songs per song type, decade, genre, ...; difficulty and AniList score
+   *  (0-100) as histograms so any tier floors apply later. `known` says which fields had any data at all. */
+  function listProfile(raw, meta) {
+    const P = { anime: 0, songs: 0, types: {}, decades: {}, years: {}, seasons: {}, genres: {}, formats: {}, categories: {},
+      dub: 0, rebroadcast: 0, difficulty: {}, score: {}, known: {} };
+    const anime = new Set();
+    for (const x of raw) {
+      if (!x || typeof x !== 'object') continue;
+      const s = adbSong(x);
+      if (!s.type) continue;
+      P.songs++;
+      if (s.malId !== null) anime.add(s.malId);
+      bump(P.types, s.type);
+      const decade = decadeOf(s.vintage), year = yearOf(s.vintage), season = seasonOf(s.vintage);
+      if (decade) bump(P.decades, decade);
+      if (year) bump(P.years, year);
+      if (season) bump(P.seasons, season);
+      if (s.format) bump(P.formats, s.format);
+      if (s.difficulty !== null) { bump(P.difficulty, Math.floor(s.difficulty)); P.known.difficulty = true; }
+      if (s.category) { bump(P.categories, s.category); P.known.category = true; }
+      if (s.dub !== undefined || s.rebroadcast !== undefined) P.known.dub = true;
+      if (s.dub) P.dub++;
+      if (s.rebroadcast) P.rebroadcast++;
+      const m = meta[s.malId];
+      if (!m) continue;
+      P.known.genre = true;
+      for (const g of new Set(m.genres.map(name => canon(GENRES, name)).filter(Boolean))) bump(P.genres, g);
+      if (typeof m.score === 'number') { bump(P.score, m.score); P.known.score = true; }
+    }
+    P.anime = anime.size;
+    return P;
+  }
+  /** [what the list has, what the check needs] for a check a list can rule out, or null when it can't tell (the
+   *  check doesn't depend on the list, or the data for it was missing). have < need: impossible with this list. */
+  function listFit(c, P) {
+    const sum = (hist, fits) => Object.entries(hist).reduce((n, [k, v]) => n + (fits(+k) ? v : 0), 0);
+    const kinds = o => Object.keys(o).length;
+    const scoreTier = avg => SCORE_TIERS.find(t => avg / 10 >= scoreFloor(t));
+    switch (c.kind) {
+      case 'type': return [P.types[c.key] || 0, 1];
+      case 'decade': return [P.decades[c.key] || 0, 1];
+      case 'format': return [P.formats[c.key] || 0, 1];
+      case 'season': return [P.seasons[c.key] || 0, 1];
+      case 'genre': return P.known.genre ? [P.genres[c.key] || 0, 1] : null;
+      case 'category': return P.known.category ? [P.categories[c.key] || 0, 1] : null;
+      case 'dub': return P.known.dub ? [c.key === 'Rebroadcast' ? P.rebroadcast : P.dub, 1] : null;
+      case 'rarity': return P.known.difficulty ? [sum(P.difficulty, d => tierOf(d) === c.key), 1] : null;
+      case 'score': return P.known.score ? [sum(P.score, a => scoreTier(a) === c.key), 1] : null;
+      case 'years': return [kinds(P.years), c.n];
+      case 'game_types': return [kinds(P.types), c.n];
+      case 'game_decades': return [kinds(P.decades), c.n];
+      case 'game_genres': return P.known.genre ? [kinds(P.genres), c.n] : null;
+      case 'game_seasons': return [kinds(P.seasons), c.n];
+    }
+    return null;
+  }
+  /** Why a list can't do a check, from what it has. */
+  function listGap(c, have) {
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    switch (c.kind) {
+      case 'years': return `only ${plural(have, 'year')} on your list`;
+      case 'game_types': return `only ${plural(have, 'song type')} on your list`;
+      case 'game_decades': return `only ${plural(have, 'decade')} on your list`;
+      case 'game_genres': return `only ${plural(have, 'genre')} on your list`;
+      case 'game_seasons': return `only ${plural(have, 'season')} on your list`;
+      case 'score': return `no ${c.key} anime on your list`;
+      case 'dub': return `no ${c.key === 'Dub' ? 'dubs' : 'rebroadcasts'} on your list`;
+      case 'rarity': return `no ${c.key} guess-rate songs on your list`;
+      default: return `no ${c.key} songs on your list`;
+    }
+  }
+  /** The checks the saved list rules out, as { c, have }: this seed's when connected, else every one a YAML can have. */
+  function impossibleChecks() {
+    const P = LC.result && LC.result.profile;
+    if (!P) return [];
+    const checks = S.data ? S.data.checks.filter(c => LIST_KINDS.includes(c.kind)) : everyListCheck();
+    return checks.map(c => ({ c, fit: listFit(c, P) })).filter(x => x.fit && x.fit[0] < x.fit[1])
+      .map(({ c, fit }) => ({ c, have: fit[0] }));
+  }
+  /** Ids of this seed's checks the list rules out; empty unless only your own list counts. */
+  const ruledOut = () => new Set(songSource() === 'own_list' ? impossibleChecks().map(x => x.c.id) : []);
+  /** Reads a list and keeps what it offers. `who` is a username, or { name, ids } for a MAL export. */
+  async function runListCheck(source = LC.source, who = source === 'mal' ? LC.file : LC.user) {
+    if (LC.busy) return;
+    const user = typeof who === 'string' ? who.trim() : '';
+    if (source === 'mal' ? !(who && who.ids) : !user) {
+      LC.error = source === 'mal' ? 'Choose your list export first.' : 'Enter a username.';
+      render();
+      return;
+    }
+    LC.busy = true; LC.error = '';
+    if (user) { LC.user = user; save('list_user', user); }
+    render();
+    try {
+      let meta, ids;
+      if (source === 'anilist') { meta = await anilistList(user); ids = Object.keys(meta).map(Number); }
+      else { ids = source === 'kitsu' ? await kitsuList(user) : who.ids; meta = await anilistMeta(ids); }
+      if (!ids.length) throw new Error('No anime on that list (Planning doesn\'t count).');
+      const profile = listProfile(await anisongdbSongs(ids), meta);
+      LC.result = { source, user: user || who.name, date: new Date().toISOString().slice(0, 10), profile };
+      save('list_result', LC.result);
+    } catch (e) {
+      LC.error = (e && e.message) || String(e);
+    }
+    LC.busy = false; LC.note = '';
+    render();
+  }
+
   // ---------- UI ----------
   let btn = null, panel = null, body = null;
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -1313,6 +1617,9 @@
 #amq-ap-panel .ap-locked>.ap-name{color:#c9cbd8}
 #amq-ap-panel .ap-sub{margin-top:1px;font-size:12px;color:var(--ap-dim)}
 #amq-ap-panel .ap-sub.ap-need{color:#f0cf7f}
+#amq-ap-panel .ap-sub.ap-nope{color:var(--ap-bad)}
+#amq-ap-panel .ap-btn:disabled{opacity:.6;cursor:progress}
+#amq-ap-panel input[type="file"]{padding:5px;font-size:12px;cursor:pointer}
 #amq-ap-panel .ap-sub.ap-progression{color:#c7b6ff;font-weight:600}
 #amq-ap-panel .ap-sub.ap-useful{color:#8fa6f0}
 #amq-ap-panel .ap-sub.ap-trap{color:#fa8072}
@@ -1476,29 +1783,75 @@
   }
   /** Open checks, open ones first and closest to done first, with what each holds and what locks it. */
   function checksSection() {
-    const D = S.data;
+    const D = S.data, out = ruledOut();
+    // open first, then waiting for unlocks or fragments, then the ones your list can't do; closest to done first
+    const rank = x => (x.out ? 2 : x.lock > 0 || x.needs.length > 0 ? 1 : 0);
     const open = D.checks.filter(c => !S.checked.has(c.id)).map(c => {
       const [a, b] = progressOf(c, false);
-      return { c, a: Math.min(a, b), b, needs: missingNeeds(c), lock: stageLock(c) };
-    }).sort((x, y) => (x.lock > 0 || x.needs.length > 0) - (y.lock > 0 || y.needs.length > 0) || y.a / y.b - x.a / x.b);
+      return { c, a: Math.min(a, b), b, needs: missingNeeds(c), lock: stageLock(c), out: out.has(c.id) };
+    }).sort((x, y) => rank(x) - rank(y) || y.a / y.b - x.a / x.b);
     const stageName = c => ((D.stages || [])[c.stage || 0]) || 'next stage';
-    const rows = open.slice(0, 40).map(({ c, a, b, needs, lock }) => {
+    const rows = open.slice(0, 40).map(({ c, a, b, needs, lock, out: no }) => {
       const scout = scoutLabel(c.id);
       const note = (scout ? `<div class="ap-sub ap-${importance(S.scouts[c.id])}">→ ${esc(scout)}</div>` : '') +
+        (no ? '<div class="ap-sub ap-nope">not possible with your list (see List check)</div>' : '') +
         (needs.length ? `<div class="ap-sub ap-need">needs ${esc(needs.join('; '))}</div>` : '') +
         (lock ? `<div class="ap-sub ap-need">${esc(stageName(c))}: ${lock} more fragment${lock > 1 ? 's' : ''}</div>` : '');
-      return itemRow(esc(c.name) + note, a, b, needs.length > 0 || lock > 0);
+      return itemRow(esc(c.name) + note, a, b, no || needs.length > 0 || lock > 0);
     }).join('');
     const scoutSelect = '<label class="ap-inline">Show contents <select id="ap-scout">' + option(S.scoutMode, 'items', 'items') +
       option(S.scoutMode, 'importance', 'importance only') + option(S.scoutMode, 'off', 'nothing') + '</select></label>';
     const more = open.length > 40 ? `<p class="ap-help">and ${open.length - 40} more</p>` : '';
     return section('checks', 'Open checks', scoutSelect + rows + more, open.length);
   }
+  /** The host's server console command for each open check the list rules out. */
+  function sendCommands(bad) {
+    const who = /\s/.test(S.slotName) ? `"${S.slotName}"` : S.slotName;
+    return bad.map(({ c }) => `/send_location ${who} ${c.name}`).join('\n');
+  }
+  function listResultHtml() {
+    const r = LC.result, P = r.profile, own = songSource() === 'own_list';
+    let h = `<div class="ap-last"><b>${esc(r.user)}</b> on ${esc(LIST_SOURCES[r.source] || r.source)}, ${esc(r.date)}: ` +
+      `${P.anime} anime, ${P.songs} songs</div>`;
+    if (S.data && !own) {
+      return h + note('', 'This seed counts every song, not only your list\'s, so your list rules nothing out. It matters with song_source: own_list.');
+    }
+    const bad = impossibleChecks().filter(x => !S.data || !S.checked.has(x.c.id));
+    if (!bad.length) return h + note('good', S.data ? 'Your list has songs for every open check.' : 'Your list has songs for every check.');
+    h += '<div class="ap-rows">' + bad.map(({ c, have }) => `<div class="ap-item"><div class="ap-name">${esc(c.name)}` +
+      `<div class="ap-sub ap-need">${esc(listGap(c, have))}</div></div></div>`).join('') + '</div>';
+    if (S.data) {
+      return h + '<p class="ap-help">Only someone at the server console can send these for you:</p>' +
+        `<textarea id="ap-list-out" rows="3" readonly spellcheck="false">${esc(sendCommands(bad))}</textarea>`;
+    }
+    const yaml = `Anime Music Quiz:\n  exclude_locations:\n${bad.map(({ c }) => `    - "${c.name}"`).join('\n')}`;
+    return h + '<p class="ap-help">With <code>song_source: own_list</code>, put these in your YAML before generating ' +
+      '(merge them with any exclude_locations you have). They then hold only filler; ones your other options don\'t ' +
+      'create are skipped.</p>' + `<textarea id="ap-list-out" rows="4" readonly spellcheck="false">${esc(yaml)}</textarea>`;
+  }
+  function listSection() {
+    const src = LC.source;
+    let h = '<label class="ap-inline">List on <select id="ap-list-src">' +
+      Object.entries(LIST_SOURCES).map(([v, label]) => option(src, v, label)).join('') + '</select></label>';
+    h += src === 'mal'
+      ? '<label class="ap-field"><span>List export <i>(.xml or .xml.gz)</i></span><input id="ap-list-file" type="file" accept=".xml,.gz"></label>' +
+        `<p class="ap-help">${LC.file ? `${esc(LC.file.name)}: ${LC.file.ids.length} anime` : 'Export your list at myanimelist.net/panel.php?go=export.'}</p>`
+      : `<label class="ap-field"><span>${LIST_SOURCES[src]} username</span><input id="ap-list-user" value="${esc(LC.user)}" ` +
+        'spellcheck="false" autocomplete="off"></label>';
+    h += `<button id="ap-list-go" class="ap-btn ap-block" type="button"${LC.busy ? ' disabled' : ''}>${LC.busy ? 'Checking…' : 'Check list'}</button>`;
+    if (LC.busy && LC.note) h += `<p class="ap-help">${esc(LC.note)}</p>`;
+    if (LC.error) h += note('warn', LC.error);
+    if (LC.result) h += listResultHtml();
+    h += '<p class="ap-help">Counts Watching, Completed, On Hold and Dropped anime (not Planning). Songs come from ' +
+      'AnisongDB, genres and scores from AniList, so a borderline song can sit differently in AMQ.</p>';
+    const count = LC.result ? impossibleChecks().filter(x => !S.data || (!S.checked.has(x.c.id) && songSource() === 'own_list')).length : undefined;
+    return section('list', 'List check', h, count);
+  }
   function logSection() {
     const chatSelect = '<label class="ap-inline">Show in AMQ chat <select id="ap-chat">' +
       option(S.chatMode, 'mine', 'my items, hints, chat') + option(S.chatMode, 'all', 'everything') +
       option(S.chatMode, 'off', 'nothing') + '</select></label>';
-    const lines = S.log.map(l => `<div>${esc(l)}</div>`).join('') || '<div class="ap-dim">Nothing yet.</div>';
+    const lines = S.logHtml.map(l => `<div>${l}</div>`).join('') || '<div class="ap-dim">Nothing yet.</div>';
     return section('log', 'Log', `<div id="ap-log" class="ap-log">${lines}</div>` + chatSelect +
       '<p class="ap-help">Type <code>/ap help</code> in AMQ chat for commands.</p>');
   }
@@ -1528,11 +1881,31 @@
     on('#ap-chat', 'onchange', el => { S.chatMode = el.value; save('chat', el.value); });
     on('#ap-scout', 'onchange', el => { S.scoutMode = el.value; save('scout', el.value); render(); });
     body.querySelectorAll('[data-hint]').forEach(b => { b.onclick = () => hintItem(b.dataset.hint); });
+    on('#ap-list-src', 'onchange', el => { LC.source = el.value; LC.error = ''; save('list_source', el.value); render(); });
+    on('#ap-list-user', 'oninput', el => { LC.user = el.value; });
+    const user = $('#ap-list-user');
+    if (user) user.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); runListCheck(); } };
+    on('#ap-list-go', 'onclick', () => runListCheck());
+    on('#ap-list-out', 'onfocus', el => el.select());
+    on('#ap-list-file', 'onchange', async el => {
+      const f = el.files && el.files[0];
+      if (!f) return;
+      try {
+        const ids = malExportIds(await readExport(f));
+        LC.file = { name: f.name, ids };
+        LC.error = ids.length ? '' : 'No anime outside Plan to Watch in that file.';
+      } catch (e) {
+        LC.error = `Can't read that file: ${(e && e.message) || e}`;
+      }
+      render();
+    });
   }
   /** What is typed into the panel's boxes, which one has focus and where the log is scrolled, so that a re-render
    *  (every log line triggers one) keeps a half-typed address, password or pasted backup. Returns the restorer. */
   function keepTyping() {
-    const values = [...body.querySelectorAll('input, textarea')].filter(el => el.id).map(el => [el.id, el.value]);
+    // not file inputs (their value can't be set) or read-only boxes (their text is the panel's, not typed)
+    const values = [...body.querySelectorAll('input, textarea')].filter(el => el.id && el.type !== 'file' && !el.readOnly)
+      .map(el => [el.id, el.value]);
     const act = document.activeElement;
     const focus = act && act.id && body.contains(act) ? [act.id, act.selectionStart, act.selectionEnd] : null;
     const log = body.querySelector('#ap-log');
@@ -1557,7 +1930,7 @@
     const live = S.connected || S.offline;
     body.innerHTML = headHtml() + '<div class="ap-main">' +
       (live ? statusHtml() + guideSection() + nextSection() + hintsSection() + checksSection() : loginHtml()) +
-      logSection() + (S.data ? backupSection() : '') + '</div>';
+      listSection() + logSection() + (S.data ? backupSection() : '') + '</div>';
     restore();
     bindPanel();
   }
@@ -1565,7 +1938,8 @@
   // ---------- boot ----------
   window.AMQAP = { state: S, connect, disconnect, handle, onAnswerResults, onQuizOver, onQuizReady, extractSong, extractOwn,
     lobbyGuide, lobbyWish, lobbySettingsFor, applyLobby, apCommand, stageLock, scoutLabel, focusWish, nextUp, applyFocus,
-    missingUnlocks, missingNeeds, hintItem, exportState, importState, useLinerNotes,
+    missingUnlocks, missingNeeds, hintItem, exportState, importState, useLinerNotes, listState: LC, everyListCheck,
+    runListCheck, listProfile, listFit, impossibleChecks, malExportIds,
     open: () => { panel.style.display = 'block'; render(); } };
   const wait = setInterval(() => {
     if (typeof Listener === 'undefined' || !document.body) return;

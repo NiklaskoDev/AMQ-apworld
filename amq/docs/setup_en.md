@@ -52,7 +52,8 @@ Archipelago MultiServer does unless it is given a certificate) fails with "your 
 * Type `/ap help` in AMQ's chat for the chat commands. `/ap !hint <item>` and other server commands work there.
   `/ap next` suggests what to play and `/ap lobby next` focuses the room on it.
 * With `song_source: own_list` or `mixed`, link your anime list in AMQ and set the lobby's song selection to
-  "watched" or a mix. The panel marks each song as "on list" or "off list".
+  "watched" or a mix. The panel marks each song as "on list" or "off list". With `own_list`, run the panel's
+  **List check** before generating: it lists the checks your list can't do, ready for `exclude_locations`.
 * With `answer_mode: typing` or `multiple_choice`, Apply to room sets the room's Answering to Typing or Multiple
   Choice. Songs answered the other way are ignored, and the panel marks songs where you had multiple choice.
 * Play solo or with friends. Spectating does nothing.

@@ -1,4 +1,8 @@
 import json
+import pathlib
+import shutil
+import subprocess
+import unittest
 
 from BaseClasses import LocationProgressType
 from test.bases import WorldTestBase
@@ -8,7 +12,7 @@ from ..items import (
     ITEM_NAME_TO_ID, LENS, LINER_NOTES, MULLIGAN, REBROADCAST, SAMPLE_ITEMS, SCORE_LENS, SEASON_ITEMS, SONG_TYPE_ITEMS,
     SPOTLIGHT,
 )
-from ..locations import EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID
+from ..locations import EVENT_FINALE, LOCATION_GROUPS, LOCATION_NAME_TO_ID, OTHER_CHECKS
 from ..options import AMQOptions
 from ..presets import OPTION_PRESETS
 
@@ -642,3 +646,31 @@ class TestLinerNotes(AMQTestBase):
     def test_filler(self) -> None:
         from BaseClasses import ItemClassification
         self.assertEqual(self.amq().create_item(LINER_NOTES).classification, ItemClassification.filler)
+
+
+# loads the userscript in node (no AMQ needed) and prints the checks its list checker knows
+LIST_CHECKS_JS = """
+const fs = require('fs'), vm = require('vm');
+const sandbox = { console, setInterval: () => 0, clearInterval() {}, setTimeout, clearTimeout };
+sandbox.window = sandbox;
+vm.createContext(sandbox);
+vm.runInContext(fs.readFileSync(process.argv[1], 'utf8'), sandbox);
+process.stdout.write(JSON.stringify(sandbox.AMQAP.everyListCheck()));
+"""
+LIST_KINDS = {"type", "decade", "genre", "format", "rarity", "season", "category", "score", "dub", "years", "game_types",
+              "game_decades", "game_genres", "game_seasons"}
+
+
+class TestClientListChecks(unittest.TestCase):
+    """The userscript's anime list check names the checks a list can rule out, so they must match the world's."""
+
+    def test_same_checks(self) -> None:
+        script = pathlib.Path(__file__).resolve().parents[2] / "client" / "amq_archipelago.user.js"
+        node = shutil.which("node")
+        if not script.is_file() or not node:
+            self.skipTest("needs node and the repository's userscript")
+        out = subprocess.run([node, "-e", LIST_CHECKS_JS, str(script)], capture_output=True, text=True, timeout=60,
+                             check=True).stdout
+        client = {(c["name"], c["kind"], c["key"], c["n"]) for c in json.loads(out)}
+        world = {(s.name, s.kind, s.key, s.n) for s in OTHER_CHECKS if s.kind in LIST_KINDS}
+        self.assertEqual(client, world)

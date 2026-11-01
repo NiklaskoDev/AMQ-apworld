@@ -434,9 +434,11 @@ test('chat bridge posts relevant multiworld messages and traps to AMQ chat', asy
   ws.server([itemSend(2, 3)]);
   ws.server([{ cmd: 'PrintJSON', type: 'Join', data: [{ text: 'Someone joined' }] }]);
   ws.server([{ cmd: 'PrintJSON', type: 'Chat', slot: 2, message: 'hi', data: [{ text: 'Friend: hi <b>' }] }]);
-  assert.deepEqual(lines, ['[AP] Friend sent an item', '[AP] Friend: hi &lt;b&gt;'], 'others\' items and joins are skipped, text is escaped');
+  const plain = html => html.replace(/<[^>]+>/g, '');
+  assert.deepEqual(lines.map(plain), ['[AP] Friend sent an item', '[AP] Friend: hi &lt;b&gt;'], 'others\' items and joins are skipped, text is escaped');
+  assert.match(lines[0], /^<span style="color:#af99ef;font-weight:bold">\[AP\]<\/span> <span style="color:#fafad2">Friend<\/span> sent an item$/);
   ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Streak Wipe Trap']) }]);
-  assert.match(lines.at(-1), /Streak Wipe Trap!/);
+  assert.match(lines.at(-1), /<span style="color:#fa8072">Streak Wipe Trap!/, 'traps in salmon');
   S.chatMode = 'all';
   ws.server([itemSend(2, 3)]);
   assert.equal(lines.length, 4);
@@ -1280,4 +1282,213 @@ test('apply to room sets AMQ\'s answering mode to match answer_mode, and the roo
   const any = await connected();
   assert.equal(any.api.lobbyWish().answering, undefined, 'answer_mode any leaves the room alone');
   assert.deepEqual([...any.api.lobbyGuide().find(([k]) => k === 'Answering')], ['Answering', 'any']);
+});
+
+// ---------- anime list check ----------
+/** A fetch for the sandbox that answers by request and records them. */
+function fakeFetch(route) {
+  const calls = [];
+  const fn = async (url, init = {}) => {
+    const body = init.body ? JSON.parse(init.body) : null;
+    calls.push({ url, body, headers: init.headers || {} });
+    const { status = 200, json, headers = {} } = route(url, body);
+    return { ok: status >= 200 && status < 300, status, headers: { get: k => headers[k] ?? null }, json: async () => json };
+  };
+  fn.calls = calls;
+  return fn;
+}
+/** An AnisongDB song; placeholder fields only. */
+const adbSong = (malId, songType, vintage, extra = {}) => ({ linked_ids: { myanimelist: malId }, songType, animeVintage: vintage,
+  animeType: 'TV', songDifficulty: 40, songCategory: 'Standard', isDub: false, isRebroadcast: false, ...extra });
+const LIST_SONGS = [
+  adbSong(1, 'Opening 1', 'Spring 2005', { songDifficulty: 70 }),
+  adbSong(1, 'Ending 1', 'Spring 2005', { songDifficulty: 30.5 }),
+  adbSong(2, 'Opening 1', 'Fall 2012', { animeType: 'Movie', songDifficulty: 12, songCategory: 'Instrumental' }),
+  adbSong(3, 'Insert Song', 'Winter 2021', { songDifficulty: 5, isDub: true }),
+];
+const anilistRoute = (pages, songs = LIST_SONGS) => (url, body) => {
+  if (url.includes('graphql.anilist.co')) {
+    if (body.query.includes('mediaList')) return { json: { data: { Page: pages[body.variables.page - 1] } } };
+    return { json: { data: { Page: { media: body.variables.ids.map(id => ({ idMal: id, genres: ['Action'], averageScore: 75 })) } } } };
+  }
+  if (url.includes('anisongdb.com')) return { json: songs.filter(s => body.mal_ids.includes(s.linked_ids.myanimelist)) };
+  throw new Error(`unexpected request ${url}`);
+};
+const ANILIST_PAGES = [
+  { pageInfo: { hasNextPage: true }, mediaList: [{ media: { idMal: 1, genres: ['Action', 'Comedy'], averageScore: 82 } },
+    { media: { idMal: 2, genres: ['Romance', 'Hentai'], averageScore: 65 } }] },
+  { pageInfo: { hasNextPage: false }, mediaList: [{ media: { idMal: 3, genres: ['Drama'], averageScore: null } },
+    { media: { idMal: null, genres: ['Horror'] } }] },
+];
+
+test('list check, before a seed: reads an AniList list and names the checks it rules out, as exclude_locations', async () => {
+  const { api, sandbox, storage } = await loadClient({ WebSocket: FakeSocket });
+  sandbox.fetch = fakeFetch(anilistRoute(ANILIST_PAGES));
+  assert.equal(api.everyListCheck().length, 74);
+  await api.runListCheck('anilist', ' someone ');
+  const calls = sandbox.fetch.calls;
+  assert.deepEqual([...calls[0].body.variables.statuses], ['CURRENT', 'REPEATING', 'COMPLETED', 'PAUSED', 'DROPPED'], 'not PLANNING');
+  assert.equal(calls[0].body.variables.user, 'someone');
+  assert.deepEqual([...calls.at(-1).body.mal_ids], [1, 2, 3], 'an entry without a MAL id is skipped');
+  const P = api.listState.result.profile;
+  assert.deepEqual([P.anime, P.songs], [3, 4]);
+  const out = Object.fromEntries(api.impossibleChecks().map(({ c, have }) => [c.name, have]));
+  for (const name of ['Genre Scholar: Horror', 'Decade Dive: 1990s x1', 'Format Hunter: OVA', 'Summer Listener: 10 Correct',
+    'Chanting Songs: 1 Correct', 'First Correct Rebroadcast', 'Well Liked Anime Songs x10', 'Overlooked Anime Songs x3',
+    'Time Capsule: 5 Decades in One Game', 'Year Collector: 10 Different Years', 'Genre Sampler: 5 Genres in One Game',
+    'Four Seasons: Winter, Spring, Summer and Fall in One Game']) assert.ok(name in out, name);
+  for (const name of ['Genre Scholar: Action', 'Genre Scholar: Romance', 'Decade Dive: 2000s x10', 'Format Hunter: Movie',
+    'Triple Threat: Opening, Ending and Insert in One Game', 'Time Capsule: 3 Decades in One Game', 'Easy Guess-Rate Songs x10',
+    'Medium Guess-Rate Songs x10', 'Hard Guess-Rate Songs x5', 'Brutal Guess-Rate Songs x3', 'Instrumental Songs: 3 Correct',
+    'First Correct Dub', 'Acclaimed Anime Songs x10', 'Mixed Anime Songs x5', 'Ending Specialist: 25 Correct']) assert.ok(!(name in out), name);
+  assert.equal(out['Year Collector: 10 Different Years'], 3);
+  api.open();
+  const html = sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  assert.match(html, /List check<span class="ap-badge">\d+<\/span>/);
+  assert.match(html, /Anime Music Quiz:\n {2}exclude_locations:\n {4}- &quot;Decade Dive: 1980s &amp; Earlier x1&quot;/, 'escaped in the text box');
+  assert.match(html, /no Horror songs on your list/);
+  assert.match(html, /only 3 years on your list/);
+  assert.ok(storage.has('amq_ap_list_result'), 'kept for the next visit');
+  assert.equal(JSON.parse(storage.get('amq_ap_list_user')), 'someone');
+});
+
+test('list check, while playing with own_list: marks open checks the list rules out, skips them in Play next, and gives host commands', async () => {
+  const DECADE = { id: 2104, name: 'Decade Dive: 2000s x1', kind: 'decade', key: '2000s', n: 1, stage: 0 };
+  const { api, sandbox } = await connected({ slot: { song_source: 'own_list', checks: [...CHECKS, DECADE] } });
+  assert.ok(api.nextUp(10).some(c => c.id === 2104), 'unlocked, so suggested before the list check');
+  sandbox.fetch = fakeFetch(anilistRoute([{ pageInfo: { hasNextPage: false }, mediaList: [{ media: { idMal: 2, genres: ['Action'], averageScore: 70 } }] }]));
+  await api.runListCheck('anilist', 'someone');
+  assert.deepEqual([...api.impossibleChecks().map(x => x.c.id)], [2104], 'only the seed\'s own checks');
+  assert.ok(!api.nextUp(10).some(c => c.id === 2104));
+  api.open();
+  const html = sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  assert.match(html, /Decade Dive: 2000s x1<div class="ap-sub ap-nope">not possible with your list/);
+  assert.match(html, /\/send_location Me Decade Dive: 2000s x1/);
+  assert.ok(html.indexOf('Decade Dive: 2000s x1<div') > html.indexOf('Flawless Start'), 'sorted after the doable ones');
+});
+
+test('list check: a seed where every song counts rules nothing out', async () => {
+  const DECADE = { id: 2104, name: 'Decade Dive: 2000s x1', kind: 'decade', key: '2000s', n: 1, stage: 0 };
+  const { api, sandbox } = await connected({ slot: { checks: [...CHECKS, DECADE] } });
+  sandbox.fetch = fakeFetch(anilistRoute([{ pageInfo: { hasNextPage: false }, mediaList: [{ media: { idMal: 2, genres: [], averageScore: 70 } }] }]));
+  await api.runListCheck('anilist', 'someone');
+  assert.ok(api.nextUp(10).some(c => c.id === 2104));
+  api.open();
+  const html = sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  assert.match(html, /counts every song, not only your list/);
+  assert.doesNotMatch(html, /not possible with your list/);
+});
+
+test('list check reads Kitsu (by profile or display name, paged) and a MAL export, leaving out Planning', async () => {
+  const { api, sandbox } = await loadClient({ WebSocket: FakeSocket });
+  const kitsu = (url, body) => {
+    if (url.includes('kitsu.app/api/edge/users?filter[slug]')) return { json: { data: [] } };
+    if (url.includes('kitsu.app/api/edge/users?filter[name]=Some%20One')) return { json: { data: [{ id: '42' }] } };
+    if (url.includes('library-entries') && !url.includes('offset')) {
+      return { json: { included: [{ type: 'anime', id: '7' }, { type: 'mappings', attributes: { externalSite: 'myanimelist/anime', externalId: '1' } },
+        { type: 'mappings', attributes: { externalSite: 'anidb', externalId: '99' } }], links: { next: 'https://kitsu.app/api/edge/library-entries?page[offset]=500' } } };
+    }
+    if (url.includes('page[offset]=500')) return { json: { included: [{ type: 'mappings', attributes: { externalSite: 'myanimelist/anime', externalId: '3' } }], links: {} } };
+    return anilistRoute([])(url, body);
+  };
+  sandbox.fetch = fakeFetch(kitsu);
+  await api.runListCheck('kitsu', 'Some One');
+  assert.equal(api.listState.error, '');
+  const urls = sandbox.fetch.calls.map(c => c.url);
+  assert.ok(urls.some(u => u.includes('filter[userId]=42') && u.includes('filter[status]=current,completed,on_hold,dropped')));
+  assert.deepEqual([...sandbox.fetch.calls.at(-1).body.mal_ids], [1, 3]);
+  assert.deepEqual([api.listState.result.profile.anime, api.listState.result.user], [2, 'Some One']);
+
+  const xml = `<?xml version="1.0"?><myanimelist>
+    <anime><series_animedb_id>1</series_animedb_id><my_status>Watching</my_status></anime>
+    <anime><series_animedb_id>2</series_animedb_id><my_status><![CDATA[Plan to Watch]]></my_status></anime>
+    <anime><series_animedb_id>3</series_animedb_id><my_status>On-Hold</my_status></anime>
+    <anime><series_animedb_id>4</series_animedb_id><my_status>Completed</my_status></anime>
+    <anime><series_animedb_id>5</series_animedb_id><my_status>Dropped</my_status></anime>
+    <anime><series_animedb_id>6</series_animedb_id><my_status>6</my_status></anime>
+  </myanimelist>`;
+  assert.deepEqual([...api.malExportIds(xml)], [1, 3, 4, 5]);
+  sandbox.fetch = fakeFetch(anilistRoute([]));
+  await api.runListCheck('mal', { name: 'animelist.xml', ids: [1, 2] });
+  assert.deepEqual([...sandbox.fetch.calls[0].body.variables.ids], [1, 2], 'genres and scores by MAL id');
+  assert.equal(api.listState.result.user, 'animelist.xml');
+});
+
+test('list check: service errors are shown, rate limits are waited out, and missing song data rules nothing out', async () => {
+  const { api, sandbox } = await loadClient({ WebSocket: FakeSocket });
+  sandbox.fetch = fakeFetch(() => ({ status: 404, json: { errors: [{ message: 'User not found', status: 404 }] } }));
+  await api.runListCheck('anilist', 'nobody');
+  assert.equal(api.listState.error, 'AniList: User not found');
+  assert.equal(api.listState.busy, false);
+  await api.runListCheck('anilist', '  ');
+  assert.equal(api.listState.error, 'Enter a username.');
+
+  let limited = false;
+  const bare = LIST_SONGS.map(({ songCategory, isDub, isRebroadcast, ...s }) => ({ ...s, songDifficulty: null }));
+  const route = anilistRoute(ANILIST_PAGES, bare);
+  sandbox.fetch = fakeFetch((url, body) => {
+    if (!limited) { limited = true; return { status: 429, headers: { 'Retry-After': '1' }, json: { errors: [{ message: 'Too Many Requests.' }] } }; }
+    return route(url, body);
+  });
+  await api.runListCheck('anilist', 'someone');
+  assert.equal(api.listState.error, '');
+  const names = api.impossibleChecks().map(x => x.c.name);
+  assert.ok(names.includes('Genre Scholar: Horror'));
+  for (const kind of ['category', 'dub', 'rarity']) {
+    assert.ok(!api.impossibleChecks().some(x => x.c.kind === kind), `${kind}: no data, so no verdict`);
+  }
+});
+
+test('chat and panel log color players, items by class and places like Archipelago does', async () => {
+  const { ws, S, sandbox, api } = await connected();
+  const lines = withChat(sandbox);
+  ws.server([{ cmd: 'PrintJSON', type: 'ItemSend', receiving: 1, item: { item: 5, location: 9, player: 2 }, data: [
+    { type: 'player_id', text: '2' }, { text: ' sent ' }, { type: 'item_id', text: '5', player: 1, flags: 1 },
+    { text: ' to ' }, { type: 'player_id', text: '1' }, { text: ' (' }, { type: 'location_id', text: '9', player: 2 }, { text: ')' },
+  ] }]);
+  const line = lines.at(-1);
+  assert.match(line, /<span style="color:#fafad2">Friend<\/span>/, 'another player: yellow');
+  assert.match(line, /<span style="color:#ee00ee">Me<\/span>/, 'you: magenta');
+  assert.match(line, /<span style="color:#00ff7f">Cave Chest<\/span>/, 'locations: green');
+  assert.match(line, /<span style="color:#af99ef">#5<\/span>/, 'progression items: plum');
+  assert.equal(S.log.at(-1), 'Friend sent #5 to Me (Cave Chest)', 'the log keeps plain text too');
+  for (const [flags, color] of [[2, '#8fa6f0'], [4, '#fa8072'], [0, '#00eeee']]) {
+    ws.server([{ cmd: 'PrintJSON', type: 'ItemSend', receiving: 1, item: { player: 1 }, data: [{ type: 'item_id', text: '5', player: 1, flags }] }]);
+    assert.match(lines.at(-1), new RegExp(`color:${color}`));
+  }
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Encore Ticket']) }]);
+  assert.match(lines.at(-1), /color:#8fa6f0">Encore Ticket/, 'boosts');
+  api.open();
+  const html = sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  assert.match(html, /<div><span style="color:#fafad2">Friend<\/span> sent/, 'the panel log is colored the same way');
+});
+
+test('the game in progress survives a reconnect and a page reload, until AMQ starts a new game', async () => {
+  const storage = new Map();
+  const a = await connected({ storage });
+  a.fire('quiz ready', {});
+  for (let i = 0; i < 3; i++) a.fire('answer results', answer());
+  assert.equal(a.S.game.streak, 3);
+  a.api.disconnect();
+  a.api.connect('ws://test:1', 'Me', '');
+  await tick();
+  handshake(a, {});
+  assert.equal(a.S.game.streak, 3, 'Disconnect then Connect keeps the streak');
+  a.fire('answer results', answer());
+  assert.equal(a.S.game.streak, 4);
+
+  const b = await connected({ storage }); // the page reloaded mid-game
+  assert.deepEqual([b.S.game.streak, b.S.game.best, b.S.game.songs], [4, 4, 4]);
+  assert.ok(b.S.game.types.has('Opening'), 'per-game sets come back as sets');
+  b.fire('answer results', answer());
+  assert.equal(b.S.game.streak, 5);
+  b.fire('quiz ready', {});
+  assert.equal(b.S.game.streak, 0, 'a new game starts over');
+
+  const c = await loadClient({ WebSocket: FakeSocket, storage });
+  c.fire('quiz ready', {}); // AMQ started a new game before connecting: the saved one is over
+  c.api.connect('ws://test:1', 'Me', '');
+  await tick();
+  handshake(c, {});
+  assert.equal(c.S.game.streak, 0);
 });

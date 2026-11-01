@@ -24,7 +24,9 @@ later stages and the Grand Finale. Traps (mute, reversed or tiny answer box, hid
 and applied by the userscript. The userscript can apply your unlocks to the room settings in one click or focus the
 room on the open check closest to done, shows what each open check holds and which unlocks a locked one waits for,
 hints missing unlocks in one click, spends Liner Notes items on free hints for other players' items, keeps
-counting while offline, and bridges multiworld chat into AMQ's chat (`/ap !hint ...` works from there).
+counting while offline, and bridges multiworld chat into AMQ's chat in Archipelago's colors (`/ap !hint ...` works
+from there). Its List check reads your AniList, Kitsu or MyAnimeList list and names the checks it can't do, as
+`exclude_locations` before generating or marked on the open checks while playing.
 
 Download `amq.apworld` and the userscript from the [latest release](https://github.com/niklaskodev/amq-apworld/releases/latest).
 
@@ -118,3 +120,8 @@ as a hint), and times clicks inside `#qpMultipleChoiceContainer`; these come fro
 AMQ's events, not from the live site; the room's `answeringMode` settles Typing and Multiple Choice rooms, and in a Mix
 room with nothing readable songs count and the log warns. All site-specific code is in the "AMQ adapters" section of the
 userscript; `window.AMQAP` exposes state and helpers for debugging.
+
+The List check calls AniList's GraphQL API (`Page.mediaList` by user, `Page.media` by `idMal_in`), Kitsu's
+`users` and `library-entries` (with `anime.mappings` for MAL ids) and AnisongDB's `mal_ids_request`, the same calls a
+widely used AMQ userscript makes from AMQ's page. They haven't been run against the live services from this
+repository's tests, which mock them; a world test checks that the client names the same checks as the world.

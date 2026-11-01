@@ -4,11 +4,31 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
-## [0.11.1] - 2026-11-01
+## [0.12.0] - 2026-11-01
 
 Client version 8 (unchanged). No changes to generation: seeds come out the same as with 0.11.0.
 
+### Added
+- Client: **List check** in the panel. Reads an AniList or Kitsu list by username, or a MyAnimeList export file
+  (every status but Planning), gets the songs from AnisongDB and genres and scores from AniList, and names the checks
+  the list can't do: song types, decades, genres, formats, difficulty tiers, seasons, song categories, anime scores,
+  dubs and rebroadcasts and the variety challenges. Before generating it gives an `exclude_locations` block for the
+  YAML; while connected to an `own_list` seed it marks those open checks, keeps them out of Play next and gives the
+  `/send_location` commands for the server console. A world test checks the client names the same checks as the
+  world.
+
+### Changed
+- Client: AMQ chat and the panel log are in Archipelago's colors: you in magenta and other players in yellow, items
+  by class (progression plum, useful blue, traps salmon, filler cyan), locations green, behind a colored `[AP]` tag.
+  The client's own messages are colored too: traps salmon, boosts blue, warnings orange, Death Links red, goal and
+  finale green.
+
 ### Fixed
+- Client: disconnecting and connecting again (or reloading the page) mid-game started the game over: the streak,
+  flawless start, game challenges and the game-over summary reset. Only a dropped connection that reconnected by
+  itself carried on. A reconnect to the same slot now always continues the game, and a reload restores it unless AMQ
+  has started a new game since. Streaks still start over with each new AMQ game.
+
 Checked against a real room's settings (`hostModal.getSettings(true)`):
 - Client: Apply to room (and `/ap lobby`) now sets the room's Answering (`answeringMode`) to match `answer_mode`:
   Typing for `typing`, Multiple Choice for `multiple_choice`, untouched for `any`. The lobby guide shows it as

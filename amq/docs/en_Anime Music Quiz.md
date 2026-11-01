@@ -67,6 +67,24 @@ two ways out:
   `exclude_locations: ["Genres", "Formats", "Dubs & Rebroadcasts"]`.
 * During the game, the host can complete it from the server console with `/send_location <player> <check name>`.
 
+### Checking your list
+
+The panel's **List check** finds the checks your own list can't do. Pick AniList or Kitsu and enter your username, or
+pick MyAnimeList and choose your list export (myanimelist.net/panel.php?go=export, the .xml or .xml.gz). It counts
+anime you are watching, have completed, put on hold or dropped, not ones you plan to watch, then gets their songs from
+AnisongDB and their genres and scores from AniList. It looks at every check that depends on which songs exist: song
+types, decades, genres, formats, difficulty tiers, seasons, song categories, anime scores, dubs and rebroadcasts, and
+the "different years/decades/genres/seasons" challenges.
+
+* Before generating, it lists the checks your list rules out as an `exclude_locations` block to paste into your YAML.
+  Those checks then hold only filler or traps. Ones your other options don't create are skipped by the generator, so
+  the list works with any options.
+* While connected to an `own_list` seed, it marks the open checks your list can't do (they also drop out of Play
+  next) and gives the `/send_location` commands to send them from the server console.
+
+AnisongDB and AniList are close to AMQ's data but not identical, so a song near a difficulty or score boundary can sit
+differently in AMQ. A check is only ruled out when your list has nothing at all for it.
+
 ## Answer mode
 
 Instead of the answer box, AMQ can show you multiple choice options to pick from. `answer_mode` decides which of the
