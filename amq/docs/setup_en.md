@@ -44,18 +44,17 @@ Archipelago MultiServer does unless it is given a certificate) fails with "your 
 ## Playing
 
 * Open the **Lobby settings** section of the panel. As the room host, press **Apply to room** (or type `/ap lobby` in
-  chat) to set song types, vintage range, anime type, song difficulty, genres (as "optional"), guess time and
-  sample point (when they are locked and the room's is not allowed) and, for `own_list`, song selection to match your
-  unlocks. Only locked categories are changed. Anything it cannot set (for example two separate vintage ranges) is
+  chat) to set song types, vintage range, anime type, song difficulty, genres (as "optional"), guess time,
+  sample point, song categories, anime score and dubs/rebroadcasts (when they are locked and the room's is not
+  allowed), Answering for `answer_mode` and, for `own_list`, song selection to match your unlocks. Only locked categories are changed. Anything it cannot set (for example two separate vintage ranges) is
   listed so you can set it by hand. Songs outside your unlocks still play but are ignored, and the client warns you
   in chat when most of a game's songs don't count.
 * Type `/ap help` in AMQ's chat for the chat commands. `/ap !hint <item>` and other server commands work there.
   `/ap next` suggests what to play and `/ap lobby next` focuses the room on it.
 * With `song_source: own_list` or `mixed`, link your anime list in AMQ and set the lobby's song selection to
   "watched" or a mix. The panel marks each song as "on list" or "off list".
-* With `answer_mode: typing` or `multiple_choice`, Apply to room also switches the room's multiple choice off or on
-  (if it lists "multiple choice" under set by hand, switch it yourself). Songs answered the other way are ignored,
-  and the panel marks songs where you had multiple choice.
+* With `answer_mode: typing` or `multiple_choice`, Apply to room sets the room's Answering to Typing or Multiple
+  Choice. Songs answered the other way are ignored, and the panel marks songs where you had multiple choice.
 * Play solo or with friends. Spectating does nothing.
 * **Open checks** lists what is left, your progress, which stage still needs fragments and what each check holds.
 * The panel shows each song's result, for example `Opening · 2010s · TV · Medium → counted` or

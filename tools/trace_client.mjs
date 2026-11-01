@@ -49,8 +49,13 @@ async function run(key) {
     songDifficulity: { advancedOn: false, advancedValue: [0, 100] }, genre: [],
     guessTime: { randomOn: false, standardValue: 20, randomValue: [5, 60] },
     samplePoint: { randomOn: false, standardValue: 1 },
-    songCategories: { standard: true, instrumental: true, chanting: true, character: true },
-    animeScore: { standardValue: [2, 10], advancedOn: false }, dubSongs: true, rebroadcastSongs: true,
+    // shapes from a real room's hostModal.getSettings(true)
+    openingCategories: { instrumental: true, chanting: true, character: true, standard: true },
+    endingCategories: { instrumental: true, chanting: true, character: true, standard: true },
+    insertCategories: { instrumental: true, chanting: true, character: true, standard: true },
+    animeScore: { standardValue: [2, 10], advancedOn: false }, answeringMode: 1,
+    modifiers: { skipGuessing: true, skipReplay: true, duplicates: true, queueing: false, lootDropping: true,
+      rebroadcastSongs: true, dubSongs: true, fullSongRange: true, quizJoin: true },
     songSelection: { standardValue: 1, advancedValue: { random: 20, unwatched: 0, watched: 0 } },
   };
   const listeners = {};

@@ -106,14 +106,15 @@ changelog entry as notes. Installed userscripts update from the latest release.
 The client listens to AMQ's in-page events (`answer results`, `quiz ready`, `quiz over`, `play next song`) and reads
 `songInfo.type`, `vintage`, `animeType`, `animeDifficulty` and `animeGenre` plus the player list (`correct`,
 `score`, `listStatus`). The optional Song Category, Anime Score and Dub & Rebroadcast categories also read
-`songCategory`, `animeScore` and `isDub`/`isRebroadcast`; those names and the matching room settings (`songCategories`,
-`animeScore`, `dubSongs`, `rebroadcastSongs`, at the top level or among the room's `modifiers`) have not been checked against the live site yet, so the client accepts
-a few spellings and falls back to counting songs when it can't read them. For the room settings (and the room's guess time) it uses `lobby.settings`, `hostModal.getSettings`/`changeSettings` and
+`songCategory`, `animeScore` and `isDub`/`isRebroadcast`; those song fields have not been checked against the live site
+yet, so the client accepts a few spellings and falls back to counting songs when it can't read them. Their room
+settings (`openingCategories`/`endingCategories`/`insertCategories`, `animeScore`, and `dubSongs`/`rebroadcastSongs` in
+`modifiers`) and `answeringMode` (1 Typing, 2 Mix, 3 Multiple Choice) match a real room's `hostModal.getSettings(true)`.
+For the room settings (and the room's guess time) it uses `lobby.settings`, `hostModal.getSettings`/`changeSettings` and
 `lobby.changeGameSettings`, and for chat `gameChat.systemMessage` and the `#gcInput` box. These names were
 checked against widely used community userscripts. For `answer_mode` it reads `multipleChoiceNames` from
 `play next song` and `quiz.answerInput.multipleChoice.displayed` (also on `guess phase over`, for multiple choice taken
 as a hint), and times clicks inside `#qpMultipleChoiceContainer`; these come from a community userscript that recreates
-AMQ's events, not from the live site, so an unreadable mode lets songs count and logs a warning. To apply it to the
-room it looks for an on/off setting named like `multipleChoice` (top level or in `modifiers`), and otherwise lists it
-under "set by hand". All site-specific code is in the "AMQ adapters" section of the
+AMQ's events, not from the live site; the room's `answeringMode` settles Typing and Multiple Choice rooms, and in a Mix
+room with nothing readable songs count and the log warns. All site-specific code is in the "AMQ adapters" section of the
 userscript; `window.AMQAP` exposes state and helpers for debugging.

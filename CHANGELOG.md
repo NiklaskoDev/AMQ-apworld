@@ -9,13 +9,18 @@ still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry bel
 Client version 8 (unchanged). No changes to generation: seeds come out the same as with 0.11.0.
 
 ### Fixed
-- Client: Apply to room (and `/ap lobby`) now sets the room's multiple choice to match `answer_mode`: off for
-  `typing`, on for `multiple_choice`, untouched for `any`. The lobby guide shows it as "Multiple choice". The
-  setting's name hasn't been checked against the live site, so the client looks for an on/off setting named like
-  `multipleChoice`, at the top level or among the room's `modifiers`; if there is none, the result lists
-  "multiple choice (off)" or "(on)" under set by hand.
-- Client: Apply to room also finds the dub and rebroadcast switches among the room's `modifiers`, where AMQ keeps
-  its other on/off settings, instead of only at the top level.
+Checked against a real room's settings (`hostModal.getSettings(true)`):
+- Client: Apply to room (and `/ap lobby`) now sets the room's Answering (`answeringMode`) to match `answer_mode`:
+  Typing for `typing`, Multiple Choice for `multiple_choice`, untouched for `any`. The lobby guide shows it as
+  "Answering".
+- Client: the room's Answering also tells how a song was answered: in a Typing room a song only counts as multiple
+  choice if you took the choices as a hint, and in a Multiple Choice room every song does. Before, a room where AMQ's
+  song data said nothing counted every song with a warning.
+- Client: Apply to room never set song categories: AMQ keeps them per song type (`openingCategories`,
+  `endingCategories`, `insertCategories`), not in one `songCategories` setting, so they were always left to set by
+  hand. It now sets all three.
+- Client: Apply to room only looked for the dub and rebroadcast switches at the top level of the room settings;
+  AMQ keeps them in `modifiers`.
 
 ## [0.11.0] - 2026-11-01
 

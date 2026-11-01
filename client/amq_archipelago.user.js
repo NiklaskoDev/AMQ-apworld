@@ -207,6 +207,11 @@
     const t = guessTimeTop(g);
     return typeof t === 'number' && isFinite(t) ? t : null;
   }
+  // AMQ's answeringMode, numbered in the room settings' on-screen order (Mix: each player picks for themselves)
+  const ANSWERING_MODES = { 1: 'Typing', 2: 'Mix', 3: 'Multiple Choice' };
+  const ANSWERING_IDS = { Typing: 1, Mix: 2, 'Multiple Choice': 3 };
+  /** The room's answering setting (Typing, Mix or Multiple Choice), or null if unreadable. */
+  const roomAnswering = () => ANSWERING_MODES[roomSetting('answeringMode')] || null;
   /** The room's sample point, or null if unreadable. */
   function roomSamplePoint() {
     const sp = roomSetting('samplePoint');
@@ -270,19 +275,9 @@
   }
 
   const FORMAT_KEYS = { TV: 'tv', Movie: 'movie', OVA: 'ova', ONA: 'ona', Special: 'special' };
-  /** [owner, key] of an on/off room setting, at the top level or among AMQ's `modifiers`, or null. `match` is a key
-   *  name or a pattern for one; a negated name (disable..., no...) is skipped so that true always means on. */
-  function roomFlag(s, match) {
-    const fits = k => (typeof match === 'string' ? k === match : match.test(k) && !/^(?:disable|no|hide|block)/i.test(k));
-    for (const owner of [s, s.modifiers]) {
-      if (!owner || typeof owner !== 'object') continue;
-      const key = Object.keys(owner).find(k => fits(k) && typeof owner[k] === 'boolean');
-      if (key) return [owner, key];
-    }
-    return null;
-  }
-  // the room's multiple choice switch has not been checked against the live site, so it is found by name
-  const MULTIPLE_CHOICE_KEY = /multiple.?choice|multi.?choice/i;
+  /** The settings object holding the on/off setting `key`: AMQ's `modifiers` (where it keeps them), else the top
+   *  level, or null. */
+  const flagOwner = (s, key) => [s.modifiers, s].find(o => o && typeof o === 'object' && typeof o[key] === 'boolean') || null;
   /** Rewrites a copy of AMQ's room settings to match `want`. Categories left out of `want` are not touched. */
   function lobbySettingsFor(s, want) {
     const done = [], manual = [];
@@ -347,14 +342,11 @@
       } else manual.push('sample point');
     }
     if (want.categories) {
-      // assumed shape: { standard: bool | {openings, endings, inserts}, instrumental: ..., ... }
-      const sc = s.songCategories;
-      if (sc && typeof sc === 'object' && CATEGORIES.every(c => c.toLowerCase() in sc)) {
-        for (const c of CATEGORIES) {
-          const on = want.categories.includes(c), k = c.toLowerCase();
-          if (typeof sc[k] === 'boolean') sc[k] = on;
-          else if (sc[k] && typeof sc[k] === 'object') for (const t of Object.keys(sc[k])) if (typeof sc[k][t] === 'boolean') sc[k][t] = on;
-        }
+      // one set per song type: { standard, instrumental, chanting, character } in each of these
+      const sets = ['openingCategories', 'endingCategories', 'insertCategories'].map(k => s[k])
+        .filter(set => set && typeof set === 'object' && CATEGORIES.every(c => typeof set[c.toLowerCase()] === 'boolean'));
+      if (sets.length === 3) {
+        for (const set of sets) for (const c of CATEGORIES) set[c.toLowerCase()] = want.categories.includes(c);
         done.push('song categories');
       } else manual.push('song categories');
     }
@@ -368,13 +360,12 @@
     }
     for (const [k, key, label] of [['dub', 'dubSongs', 'dub songs'], ['rebroadcast', 'rebroadcastSongs', 'rebroadcast songs']]) {
       if (want[k] === undefined) continue;
-      const flag = roomFlag(s, key);
-      if (flag) { flag[0][flag[1]] = want[k]; done.push(label); } else manual.push(label);
+      const owner = flagOwner(s, key);
+      if (owner) { owner[key] = want[k]; done.push(label); } else manual.push(label);
     }
-    if (want.multipleChoice !== undefined) {
-      const flag = roomFlag(s, MULTIPLE_CHOICE_KEY);
-      if (flag) { flag[0][flag[1]] = want.multipleChoice; done.push('multiple choice'); }
-      else manual.push(`multiple choice (${want.multipleChoice ? 'on' : 'off'})`);
+    if (want.answering) {
+      if (typeof s.answeringMode === 'number') { s.answeringMode = ANSWERING_IDS[want.answering]; done.push('answering'); }
+      else manual.push(`answering (${want.answering})`);
     }
     if (want.watchedOnly) {
       const sel = s.songSelection;
@@ -986,12 +977,13 @@
     notify(`${g.ignored} of ${g.songs} songs this game didn't count (most often: ${top}). ` +
       'Use Apply to room in the panel or /ap lobby to match your unlocks.');
   }
-  /** Whether the song just answered had multiple choice: true, false, or null when AMQ didn't say. */
+  /** Whether the song just answered had multiple choice: true, false, or null when AMQ didn't say. A Typing room can
+   *  still show the choices as a hint, and in a Mix room only the song itself tells. */
   function answeredWithChoices() {
-    const had = S.songChoices, shown = choicesShown();
+    const had = S.songChoices, shown = choicesShown(), room = roomAnswering();
     S.songChoices = null;
-    if (had || shown) return true;
-    return had === false || shown === false ? false : null;
+    if (had || shown || room === 'Multiple Choice') return true;
+    return had === false || shown === false || room === 'Typing' ? false : null;
   }
   function onAnswerResults(p) {
     S.lastPayload = p;
@@ -1145,7 +1137,7 @@
     if (gated('Anime Score')) want.score = [scoreFloor(SCORE_TIERS[maxScoreTier()]), 10];
     if (gated('Dub & Rebroadcast')) { want.dub = U.dub; want.rebroadcast = U.rebroadcast; }
     if (songSource() === 'own_list') want.watchedOnly = true;
-    if (answerMode() !== 'any') want.multipleChoice = answerMode() === 'multiple_choice';
+    if (answerMode() !== 'any') want.answering = answerMode() === 'typing' ? 'Typing' : 'Multiple Choice';
     return want;
   }
 
@@ -1242,7 +1234,7 @@
       ...(gated('Anime Score') ? [['Anime score', `${Math.max(2, scoreFloor(SCORE_TIERS[maxScoreTier()]))}–10`]] : []),
       ...(gated('Dub & Rebroadcast') ? [['Dubs / rebroadcasts', `${U.dub ? 'on' : 'off'} / ${U.rebroadcast ? 'on' : 'off'}`]] : []),
       ['Song selection', { any: 'any', own_list: 'watched only (your list)', mixed: 'mix of watched and random' }[songSource()] || 'any'],
-      ...(answerMode() !== 'any' ? [['Multiple choice', answerMode() === 'typing' ? 'off (typing only)' : 'on (multiple choice only)']] : []),
+      ['Answering', { typing: 'Typing', multiple_choice: 'Multiple Choice' }[answerMode()] || 'any'],
     ];
   }
 

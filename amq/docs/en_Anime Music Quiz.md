@@ -78,9 +78,9 @@ two counts:
 | `typing` | Songs where you had multiple choice are ignored, also when you took it as a hint during the song. |
 | `multiple_choice` | Only songs where you had multiple choice count; typed ones are ignored. |
 
-Ignored songs don't break streaks. Apply to room switches the room's multiple choice setting off for `typing` and on
-for `multiple_choice` (with `any` it is left alone), and the lobby guide lists it. If the panel says to set it by hand,
-the client didn't find that setting: switch it yourself. A click on an option locks in your answer for Quick Draw just like
+Ignored songs don't break streaks. Apply to room sets the room's Answering setting to Typing for `typing` and to
+Multiple Choice for `multiple_choice` (with `any` it is left alone), and the lobby guide lists it. In a Mix room each
+player picks for themselves, so pick the matching one. A click on an option locks in your answer for Quick Draw just like
 Enter does. If the client can't tell how a song was answered, the song counts either way and the log says so once.
 
 ## Difficulty tiers
