@@ -233,6 +233,74 @@ test('no scheme tries wss first and falls back to ws', async () => {
   c.api.disconnect();
 });
 
+/** What an https page like AMQ gets for ws:// to another computer: the constructor throws. wss:// fails while `down`. */
+class MixedContent extends FakeSocket {
+  static down = false;
+  constructor(url) {
+    if (url.startsWith('ws://')) {
+      const e = new Error("Failed to construct 'WebSocket': An insecure WebSocket connection may not be initiated from a page loaded over HTTPS.");
+      e.name = 'SecurityError';
+      throw e;
+    }
+    super(url);
+    this.shouldFail = MixedContent.down;
+  }
+}
+
+test('a ws:// address the browser blocks explains how to allow it, without retrying', async () => {
+  const c = await loadClient({ WebSocket: MixedContent });
+  c.api.open();
+  c.api.connect('ws://203.0.113.5:38281', 'Me', '');
+  await tick();
+  assert.equal(FakeSocket.instances.length, 0);
+  assert.match(c.S.connError, /^Your browser blocked ws:\/\/203\.0\.113\.5:38281: .*Connect with wss:\/\//);
+  assert.match(c.S.connError, /Site settings, and set Insecure content to Allow, then reload AMQ\.$/);
+  assert.equal(c.S.retryTimer, null);
+  const html = c.sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  assert.match(html, /id="ap-go".*Insecure content to Allow/s);
+  c.sandbox.navigator = { userAgent: 'Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0' };
+  c.api.connect('ws://203.0.113.5:38281', 'Me', '');
+  assert.match(c.S.connError, /set network\.websocket\.allowInsecureFromHTTPS to true, then reload AMQ\.$/);
+});
+
+test('without a scheme, a blocked ws:// fallback says wss:// did not connect either', async () => {
+  MixedContent.down = true;
+  const c = await loadClient({ WebSocket: MixedContent });
+  c.api.connect('203.0.113.5:38281', 'Me', '');
+  await tick();
+  MixedContent.down = false;
+  assert.deepEqual(FakeSocket.instances.map(s => s.url), ['wss://203.0.113.5:38281']);
+  assert.match(c.S.connError, /^wss:\/\/203\.0\.113\.5:38281 did not connect, and your browser blocked ws:\/\/203\.0\.113\.5:38281: .*has no wss:\/\//);
+  assert.equal(c.S.retryTimer, null);
+});
+
+test('a dropped wss connection reconnects to wss only, still counting, instead of falling back to ws', async () => {
+  const c = await loadClient({ WebSocket: MixedContent });
+  c.api.connect('example.org:38281', 'Me', '');
+  await tick();
+  handshake(c, { slot: { death_link: false } });
+  MixedContent.down = true;
+  FakeSocket.instances.at(-1).close(); // the server went away
+  assert.equal(c.S.offline, true);
+  await new Promise(r => setTimeout(r, 2100)); // the client retries after 2s, and the server is still down
+  MixedContent.down = false;
+  assert.deepEqual(FakeSocket.instances.map(s => s.url), ['wss://example.org:38281', 'wss://example.org:38281']);
+  assert.equal(c.S.offline, true);
+  assert.equal(c.S.connError, '');
+  assert.match(c.S.log.at(-1), /Reconnecting in 4s/);
+  c.api.disconnect();
+});
+
+test('without a scheme, retries keep trying wss and then ws until one connects', async () => {
+  class Down extends FakeSocket { constructor(url) { super(url); this.shouldFail = true; } }
+  const c = await loadClient({ WebSocket: Down });
+  c.api.connect('localhost:38281', 'Me', '');
+  await new Promise(r => setTimeout(r, 2100));
+  assert.deepEqual(FakeSocket.instances.map(s => s.url),
+    ['wss://localhost:38281', 'ws://localhost:38281', 'wss://localhost:38281', 'ws://localhost:38281']);
+  c.api.disconnect();
+});
+
 const LIST_CHECKS = [
   { id: 2800, name: 'Home Turf: 10 Correct from Your List', kind: 'list_on', n: 2, stage: 0 },
   { id: 2803, name: 'Uncharted: 10 Correct off Your List', kind: 'list_off', n: 2, stage: 0 },

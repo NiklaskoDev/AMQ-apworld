@@ -4,6 +4,20 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
+## [0.10.3] - 2026-11-01
+
+Client version 7 (unchanged). No changes to generation: seeds come out the same as with 0.10.2.
+
+### Fixed
+- Client: connecting to a server without encryption (`ws://`, such as a self-hosted MultiServer) on another
+  computer failed with an uncaught "insecure WebSocket connection" error. Browsers only let an https page like AMQ
+  use `ws://` with a server on the same computer. The panel now says so and how to allow it in your browser (see the
+  setup guide's "Servers without wss://").
+- Client: a dropped connection to an address typed without `ws://` or `wss://` now reconnects with the one that
+  worked. Before, a reconnect while the server was down also tried `ws://`, which the browser blocks, and that
+  stopped reconnecting altogether. When neither answered at first, the retries now try both again, so a local
+  server started a moment later is found.
+
 ## [0.10.2] - 2026-10-29
 
 Client version 7 (unchanged). No changes to generation: seeds come out the same as with 0.10.1.

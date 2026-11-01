@@ -14,13 +14,31 @@
    and confirm the install. Your userscript manager checks that address for updates from then on.
 2. Open animemusicquiz.com and log in. An **AP** button appears in the bottom-right corner.
 3. Click it and enter the server address (for example `archipelago.gg:38281`), your slot name and the password,
-   then press Connect. Without `ws://` or `wss://` the client tries a secure connection first and falls back to an
-   unencrypted one, which is what local servers need.
+   then press Connect. Without `ws://` or `wss://` the client tries the encrypted `wss://` first and then `ws://`.
+   Browsers allow `ws://` from AMQ only to a server on your own computer; see
+   [Servers without wss://](#servers-without-wss) for the others.
 
 The client reconnects by itself if the connection drops, and keeps counting in the meantime: checks earned while
 offline are sent once it is back. Progress, boosts and pending traps are saved on the Archipelago server, so you can
 switch browsers without losing anything or getting traps twice. The panel's Backup section exports and imports
 progress for when the server can't be reached at all.
+
+## Servers without wss://
+
+AMQ is an https page, and browsers let https pages use unencrypted `ws://` only with a server on the same computer.
+Rooms on archipelago.gg support `wss://` and work as they are. A server elsewhere that only speaks `ws://` (the
+Archipelago MultiServer does unless it is given a certificate) fails with "your browser blocked ws://...". Either:
+
+* **allow it in each player's browser**, once, then reload AMQ:
+  * Chrome, Brave, Opera: on animemusicquiz.com, click the icon left of the address bar, open **Site settings** and
+    set **Insecure content** to **Allow**. Edge calls it **Permissions for this site**. This only affects AMQ.
+  * Firefox: open `about:config` and set `network.websocket.allowInsecureFromHTTPS` to `true`. This affects every
+    site.
+  * Safari has no such setting and needs a `wss://` server.
+* **or encrypt the server**: start MultiServer with `--cert` and `--cert_key` pointing at a certificate for the
+  server's domain that browsers trust (for example one from Let's Encrypt), or put a TLS reverse proxy such as Caddy
+  in front of it. Players then connect with `wss://`. A self-signed certificate only works in browsers that were told
+  to trust it.
 
 ## Playing
 

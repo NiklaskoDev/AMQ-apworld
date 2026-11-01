@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.10.2
+// @version      0.10.3
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -76,7 +76,7 @@
     seed: '', team: 0, slot: 0, slotName: '', data: null, players: {}, slotInfo: {}, games: {},
     checked: new Set(), received: [], queued: [], scouts: {}, scoutMode: load('scout', 'items'), warned: new Set(),
     unlocks: null, fragments: 0, prog: freshProgress(), game: freshGame(), pending: [],
-    goalSent: false, lastPayload: null, lastSong: '', log: [], chatMode: load('chat', 'mine'),
+    goalSent: false, lastPayload: null, lastSong: '', log: [], chatMode: load('chat', 'mine'), connError: '',
     songStart: 0, lastSubmit: 0, ringSource: Math.floor(Math.random() * 2 ** 31),
   };
 
@@ -451,38 +451,58 @@
     S.manualClose = false; S.retries = 0;
     S.conn = { url: url.trim(), slot: slotName.trim() }; S.password = password || '';
     save('conn', S.conn);
-    open(S.conn.url, !/^wss?:\/\//.test(S.conn.url));
+    const u = S.conn.url;
+    open(/^wss?:\/\//.test(u) ? [u] : ['wss://' + u, 'ws://' + u]);
   }
-  function open(url, tryBoth) {
-    const target = /^wss?:\/\//.test(url) ? url : 'wss://' + url;
-    let opened = false;
-    const ws = (S.ws = new WebSocket(target));
-    ws.onopen = () => { opened = true; S.retries = 0; say(`Connected to ${target}.`); };
+  /** Tries each address in turn until one opens; reconnects go straight to the one that worked. */
+  function open(targets, i = 0) {
+    const target = targets[i];
+    let opened = false, ws;
+    try { ws = S.ws = new WebSocket(target); } catch (e) { return cantOpen(targets, i, e); }
+    ws.onopen = () => { opened = true; S.retries = 0; S.connError = ''; say(`Connected to ${target}.`); };
     ws.onmessage = ev => { let msgs; try { msgs = JSON.parse(ev.data); } catch (e) { return; } msgs.forEach(handle); };
     ws.onclose = () => {
       if (S.ws !== ws) return;
       const was = S.connected;
       S.connected = false;
-      if (!opened && tryBoth && target.startsWith('wss://')) { S.ready = false; return open('ws://' + url, false); }
+      if (!opened && i + 1 < targets.length) return open(targets, i + 1);
       if (S.manualClose) { S.ready = false; S.offline = false; render(); return; }
       // keep counting while the connection is down; checks wait in the pending queue until the next login
       S.offline = S.ready && !!S.data;
       if (!S.offline) S.ready = false;
       if (was || opened) say(S.offline ? 'Connection lost. Still counting; checks are sent once you are back.' : 'Connection lost.');
-      scheduleRetry(url, tryBoth);
+      scheduleRetry(opened ? [target] : targets);
     };
   }
-  function scheduleRetry(url, tryBoth) {
+  /** The browser would not even create the socket, so retrying can't help. */
+  function cantOpen(targets, i, e) {
+    const target = targets[i];
+    S.ws = null; S.connected = false; S.ready = false; S.offline = false;
+    if (e && e.name === 'SecurityError') {
+      // an https page like AMQ may open ws:// only to this computer; anything else needs wss:// or a browser setting
+      const firefox = typeof navigator !== 'undefined' && /Firefox\//.test(navigator.userAgent);
+      const allow = firefox ? 'open about:config and set network.websocket.allowInsecureFromHTTPS to true'
+        : 'click the icon left of the address bar, then Site settings, and set Insecure content to Allow';
+      S.connError = (i ? `${targets[0]} did not connect, and your` : 'Your') + ` browser blocked ${target}: AMQ is an ` +
+        'https page, which may only use unencrypted ws:// with a server on this computer. ' +
+        (i ? 'If the server is up but has no wss://, allow' : 'Connect with wss:// if the server has it, or allow') +
+        ` ws:// for AMQ: ${allow}, then reload AMQ.`;
+    } else {
+      S.connError = `Can't connect to ${target}: ${(e && e.message) || e}`;
+    }
+    say(S.connError);
+  }
+  function scheduleRetry(targets) {
     if (S.retries >= 8) { say('Giving up reconnecting. Press Connect to try again.'); return; }
     const delay = Math.min(30, 2 ** ++S.retries);
     say(`Reconnecting in ${delay}s...`);
-    S.retryTimer = setTimeout(() => open(url, tryBoth), delay * 1000);
+    S.retryTimer = setTimeout(() => open(targets), delay * 1000);
   }
   function disconnect() {
     S.manualClose = true;
     clearTimeout(S.retryTimer);
     if (S.ws) { try { S.ws.close(); } catch (e) { /* already closed */ } }
-    S.ws = null; S.connected = false; S.ready = false; S.offline = false;
+    S.ws = null; S.connected = false; S.ready = false; S.offline = false; S.connError = '';
   }
 
   const flip = o => Object.fromEntries(Object.entries(o || {}).map(([n, i]) => [i, n]));
@@ -1213,7 +1233,8 @@
     return `<input id="ap-url" placeholder="server:port" value="${esc(S.conn.url)}">
         <input id="ap-slot" placeholder="slot name" value="${esc(S.conn.slot)}">
         <input id="ap-pw" type="password" placeholder="password (optional)">
-        <button id="ap-go">Connect</button>`;
+        <button id="ap-go">Connect</button>` +
+      (S.connError ? `<br><b style="color:#ffd76a">${esc(S.connError)}</b>` : '');
   }
   /** Slot, counters, traps, last song and goal at the top of the panel. */
   function statusHtml() {
