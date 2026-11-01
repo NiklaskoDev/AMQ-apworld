@@ -12,9 +12,10 @@
 1. With your userscript manager installed, open
    [`amq_archipelago.user.js` from the latest release](https://github.com/niklaskodev/amq-apworld/releases/latest/download/amq_archipelago.user.js)
    and confirm the install. Your userscript manager checks that address for updates from then on.
-2. Open animemusicquiz.com and log in. An **AP** button appears in the bottom-right corner.
+2. Open animemusicquiz.com and log in. An **AP** button appears in the bottom-right corner. Its dot turns green
+   while you are connected and yellow while connecting or offline.
 3. Click it and enter the server address (for example `archipelago.gg:38281`), your slot name and the password,
-   then press Connect. Without `ws://` or `wss://` the client tries the encrypted `wss://` first and then `ws://`.
+   then press Connect (or Enter). Without `ws://` or `wss://` the client tries the encrypted `wss://` first and then `ws://`.
    Browsers allow `ws://` from AMQ only to a server on your own computer; see
    [Servers without wss://](#servers-without-wss) for the others.
 

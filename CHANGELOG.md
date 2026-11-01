@@ -4,6 +4,30 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
+## [0.10.4] - 2026-11-01
+
+Client version 7 (unchanged). No changes to generation: seeds come out the same as with 0.10.3. Only the panel
+changed; what the client counts and sends is the same.
+
+### Fixed
+- Client: the panel's buttons and drop-down menus were close to unreadable on AMQ, whose stylesheet gives them
+  light text without a dark background. Every text box, menu and button now has its own colors, with a visible
+  focus outline and readable placeholders.
+- Client: a log line arriving while you typed (a reconnect attempt, chat) redrew the panel and threw away a
+  half-typed server address, slot name or password. The panel now keeps what you typed, where the cursor was, and
+  the Log's scroll position.
+- Client: the password box no longer offers the browser's saved AMQ password, which would have been sent to the
+  Archipelago server.
+
+### Changed
+- Client: a redesigned panel. A header shows the connection state and has Disconnect and close buttons; checks,
+  fragments and the goal show as progress bars; counters are tiles; offline, trap and finale notes stand out; the
+  last song's result is green, red or yellow for counted, missed or ignored. Sections are cards that remember
+  whether they are open across page loads, and show their count as a badge. Open checks color what they hold by
+  Archipelago's item classes and mark locked checks' missing unlocks. The login fields have labels, and Enter
+  connects. The Log shows the whole history and follows the newest line. The **AP** button's dot shows the
+  connection state while the panel is closed.
+
 ## [0.10.3] - 2026-11-01
 
 Client version 7 (unchanged). No changes to generation: seeds come out the same as with 0.10.2.

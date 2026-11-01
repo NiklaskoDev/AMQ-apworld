@@ -1037,7 +1037,7 @@ test('the panel renders the new sections, and its status view while offline', as
   const { ws, api, S, sandbox } = await connected({ slot: { gated: [...ALL_GATES, 'Anime Score'] } });
   api.open();
   const html = () => sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
-  for (const part of [/Play next/, /Hint an unlock \(\d+\)/, /data-hint="Ending Pass"/, /Backup/, /Anime score/]) assert.match(html(), part);
+  for (const part of [/Play next/, /Hint an unlock<span class="ap-badge">\d+<\/span>/, /data-hint="Ending Pass"/, /Backup/, /Anime score/]) assert.match(html(), part);
   ws.close();
   assert.match(html(), /Offline: still counting/);
   clearTimeout(S.retryTimer);
@@ -1138,4 +1138,34 @@ test('key presses in the panel do not reach AMQ, so Backspace works in its input
     panel.handlers[type].forEach(fn => fn({ type, key: 'Backspace', stopPropagation() { stopped = true; } }));
     assert.ok(stopped, type);
   }
+});
+
+test('the panel gives its controls their own colors, so AMQ\'s stylesheet can\'t make them unreadable', async () => {
+  const { api, sandbox } = await connected({ slot: { gated: [...ALL_GATES, 'Anime Score'] } });
+  api.open();
+  const css = sandbox.document.head.children.find(x => x.id === 'amq-ap-css').textContent;
+  // Bootstrap's `button, select { color: inherit }` left light text on the browser's light control background
+  assert.match(css, /#amq-ap-panel input,#amq-ap-panel select,#amq-ap-panel textarea\{[^}]*background:[^;}]+!important;color:[^;}]+!important/);
+  assert.match(css, /#amq-ap-panel \.ap-btn\{[^}]*background:[^;}]+!important;color:[^;}]+!important/);
+  assert.match(css, /#amq-ap-panel input::placeholder[^{]*\{color:/);
+  const html = sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  const buttons = html.match(/<button[^>]*>/g);
+  assert.ok(buttons.length > 5);
+  for (const b of buttons) assert.match(b, /class="ap-(btn|x)\b/, b);
+});
+
+test('the login fields keep a saved AMQ password out, and the AP button shows the connection state', async () => {
+  const { api, sandbox, S } = await loadClient({ WebSocket: FakeSocket });
+  api.open();
+  const html = () => sandbox.document.body.children.find(x => x.id === 'amq-ap-panel').children[0].innerHTML;
+  assert.match(html(), /id="ap-pw" type="password"[^>]*autocomplete="new-password"/);
+  const btn = sandbox.document.body.children.find(x => x.id === 'amq-ap-btn');
+  assert.equal(btn.dataset.state, 'off');
+  api.connect('ws://test:1', 'Me', '');
+  assert.equal(btn.dataset.state, 'busy');
+  assert.match(html(), /Connecting…/);
+  await tick();
+  handshake({ api, S, sandbox }, {});
+  assert.equal(btn.dataset.state, 'ok');
+  assert.match(html(), /Me · connected/);
 });

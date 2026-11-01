@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.10.3
+// @version      0.10.4
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -473,6 +473,7 @@
       if (was || opened) say(S.offline ? 'Connection lost. Still counting; checks are sent once you are back.' : 'Connection lost.');
       scheduleRetry(opened ? [target] : targets);
     };
+    render(); // shows "Connecting…"
   }
   /** The browser would not even create the socket, so retrying can't help. */
   function cantOpen(targets, i, e) {
@@ -1201,82 +1202,214 @@
   }
 
   // ---------- UI ----------
-  let panel = null, body = null;
+  let btn = null, panel = null, body = null;
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // AMQ's stylesheet (Bootstrap) gives buttons and selects the surrounding text color without their background, which
+  // made them light-on-light here. So every control gets its own colors, with !important where readability depends on it.
+  const PANEL_CSS = `
+#amq-ap-btn{position:fixed;right:8px;bottom:8px;z-index:99999;display:flex;align-items:center;gap:6px;margin:0;padding:6px 12px;border:1px solid rgba(255,255,255,.2);border-radius:999px;background:#6a48f0!important;color:#fff!important;font:700 13px/1.2 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;letter-spacing:.04em;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+#amq-ap-btn:hover{background:#7a5cff!important}
+#amq-ap-btn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+#amq-ap-btn::before{content:"";width:8px;height:8px;border-radius:50%;background:#9a9db3}
+#amq-ap-btn[data-state="ok"]::before{background:#5fd38d}
+#amq-ap-btn[data-state="warn"]::before,#amq-ap-btn[data-state="busy"]::before{background:#ffcf5c}
+#amq-ap-panel{--ap-bg:#171822;--ap-raised:#202231;--ap-field:#0e0f17;--ap-line:#34374b;--ap-text:#ececf3;--ap-dim:#a4a7bb;--ap-accent:#6a48f0;--ap-accent-hi:#7a5cff;--ap-bar:#8b6cff;--ap-good:#5fd38d;--ap-warn:#ffcf5c;--ap-bad:#ff8a80;
+  position:fixed;right:8px;bottom:46px;z-index:99999;display:none;box-sizing:border-box;width:380px;max-width:calc(100vw - 16px);max-height:min(78vh,calc(100vh - 60px));overflow:auto;overscroll-behavior:contain;padding:0;
+  background:var(--ap-bg);color:var(--ap-text);border:1px solid var(--ap-line);border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.55);
+  font:13px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;text-align:left;user-select:text;color-scheme:dark;scrollbar-width:thin;scrollbar-color:#4a4d63 transparent}
+#amq-ap-panel *{box-sizing:border-box}
+#amq-ap-panel b{font-weight:700}
+#amq-ap-panel .ap-head{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;background:var(--ap-raised);border-bottom:1px solid var(--ap-line)}
+#amq-ap-panel .ap-dot{flex:none;width:9px;height:9px;border-radius:50%;background:#9a9db3}
+#amq-ap-panel .ap-dot.ap-ok{background:var(--ap-good);box-shadow:0 0 0 3px rgba(95,211,141,.2)}
+#amq-ap-panel .ap-dot.ap-warn,#amq-ap-panel .ap-dot.ap-busy{background:var(--ap-warn)}
+#amq-ap-panel .ap-title{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+#amq-ap-panel .ap-title span{color:var(--ap-dim);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#amq-ap-panel .ap-main{padding:10px 12px 12px}
+#amq-ap-panel .ap-meters{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+#amq-ap-panel .ap-wide{grid-column:1/-1}
+#amq-ap-panel .ap-meter-top{display:flex;justify-content:space-between;gap:6px;margin-bottom:3px;font-size:12px;color:var(--ap-dim)}
+#amq-ap-panel .ap-meter-top b,#amq-ap-panel .ap-mini,#amq-ap-panel .ap-stat b,#amq-ap-panel .ap-badge{color:var(--ap-text);font-variant-numeric:tabular-nums}
+#amq-ap-panel .ap-bar{height:6px;border-radius:3px;background:#2e3145;overflow:hidden}
+#amq-ap-panel .ap-bar>i{display:block;height:100%;border-radius:3px;background:var(--ap-bar)}
+#amq-ap-panel .ap-bar.ap-done>i{background:var(--ap-good)}
+#amq-ap-panel .ap-stats{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+#amq-ap-panel .ap-stat{flex:1 1 64px;padding:4px 6px;border:1px solid var(--ap-line);border-radius:7px;background:var(--ap-raised);text-align:center}
+#amq-ap-panel .ap-stat b{display:block;font-size:16px;line-height:1.25}
+#amq-ap-panel .ap-stat span{display:block;font-size:11px;color:var(--ap-dim);white-space:nowrap}
+#amq-ap-panel .ap-note{margin-top:8px;padding:7px 9px;border:1px solid var(--ap-line);border-radius:7px;background:var(--ap-raised);font-size:12.5px;overflow-wrap:anywhere}
+#amq-ap-panel .ap-note.ap-warn{border-color:rgba(255,207,92,.45);background:rgba(255,207,92,.08);color:#ffe3a1}
+#amq-ap-panel .ap-note.ap-bad{border-color:rgba(255,138,128,.45);background:rgba(255,138,128,.08);color:#ffc2bc}
+#amq-ap-panel .ap-note.ap-good{border-color:rgba(95,211,141,.45);background:rgba(95,211,141,.08);color:#b4f0cb}
+#amq-ap-panel .ap-last{margin-top:8px;font-size:12.5px;color:var(--ap-dim);overflow-wrap:anywhere}
+#amq-ap-panel .ap-last b{color:var(--ap-text);font-weight:600}
+#amq-ap-panel span.ap-good{color:var(--ap-good)}#amq-ap-panel span.ap-bad{color:var(--ap-bad)}#amq-ap-panel span.ap-warn{color:var(--ap-warn)}
+#amq-ap-panel details.ap-sec{margin-top:10px;border:1px solid var(--ap-line);border-radius:8px;background:var(--ap-raised)}
+#amq-ap-panel summary{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;font-weight:700;list-style:none;cursor:pointer;user-select:none}
+#amq-ap-panel summary::-webkit-details-marker{display:none}
+#amq-ap-panel summary::before{content:"";flex:none;width:6px;height:6px;margin:0 2px 0 1px;border:solid var(--ap-dim);border-width:0 2px 2px 0;transform:rotate(-45deg);transition:transform .15s}
+#amq-ap-panel details[open]>summary::before{transform:rotate(45deg)}
+#amq-ap-panel summary:hover{background:rgba(255,255,255,.04)}
+#amq-ap-panel summary:focus-visible{outline:2px solid var(--ap-bar);outline-offset:-2px}
+#amq-ap-panel .ap-badge{margin-left:auto;min-width:24px;padding:1px 7px;border-radius:999px;background:#2e3145;font-size:11.5px;font-weight:600;text-align:center}
+#amq-ap-panel .ap-sec-body{padding:0 10px 10px}
+#amq-ap-panel table{width:100%;margin:0;border-collapse:collapse;background:none}
+#amq-ap-panel .ap-kv th,#amq-ap-panel .ap-kv td{padding:4px 0;border-top:1px solid rgba(255,255,255,.06);vertical-align:top;text-align:left;font-size:12.5px;overflow-wrap:anywhere}
+#amq-ap-panel .ap-kv tr:first-child>*{border-top:0}
+#amq-ap-panel .ap-kv th{width:42%;padding-right:10px;color:var(--ap-dim);font-weight:400}
+#amq-ap-panel .ap-item{display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-top:1px solid rgba(255,255,255,.06)}
+#amq-ap-panel .ap-item:first-child{border-top:0}
+#amq-ap-panel .ap-name{flex:1;min-width:0;overflow-wrap:anywhere}
+#amq-ap-panel .ap-locked>.ap-name{color:#c9cbd8}
+#amq-ap-panel .ap-sub{margin-top:1px;font-size:12px;color:var(--ap-dim)}
+#amq-ap-panel .ap-sub.ap-need{color:#f0cf7f}
+#amq-ap-panel .ap-sub.ap-progression{color:#c7b6ff;font-weight:600}
+#amq-ap-panel .ap-sub.ap-useful{color:#8fa6f0}
+#amq-ap-panel .ap-sub.ap-trap{color:#fa8072}
+#amq-ap-panel .ap-mini{flex:none;width:64px;font-size:11.5px;text-align:right}
+#amq-ap-panel .ap-mini .ap-bar{margin:5px 0 2px}
+#amq-ap-panel .ap-chips{display:flex;flex-wrap:wrap;gap:5px}
+#amq-ap-panel .ap-help{margin:8px 0 0;font-size:12px;color:var(--ap-dim)}
+#amq-ap-panel code{padding:1px 4px;border-radius:4px;background:#2e3145;color:var(--ap-text);font:11.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#amq-ap-panel .ap-log{max-height:170px;overflow:auto;padding:6px 8px;border:1px solid var(--ap-line);border-radius:7px;background:var(--ap-field);font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+#amq-ap-panel .ap-log>div+div{margin-top:3px;padding-top:3px;border-top:1px solid rgba(255,255,255,.05)}
+#amq-ap-panel .ap-dim{color:var(--ap-dim)}
+#amq-ap-panel button,#amq-ap-panel input,#amq-ap-panel select,#amq-ap-panel textarea{margin:0;font:inherit;font-size:13px;letter-spacing:normal;text-transform:none;text-shadow:none;opacity:1}
+#amq-ap-panel .ap-btn{-webkit-appearance:none;appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:30px;padding:5px 12px;border:1px solid #474b63!important;border-radius:7px;background:#2a2d40!important;color:var(--ap-text)!important;font-weight:600;line-height:1.2;text-align:center;cursor:pointer;box-shadow:none;transition:background-color .12s,border-color .12s}
+#amq-ap-panel .ap-btn:hover{background:#353950!important;border-color:#5d6280!important}
+#amq-ap-panel .ap-btn.ap-primary{background:var(--ap-accent)!important;border-color:var(--ap-accent)!important;color:#fff!important}
+#amq-ap-panel .ap-btn.ap-primary:hover{background:var(--ap-accent-hi)!important;border-color:var(--ap-accent-hi)!important}
+#amq-ap-panel .ap-btn.ap-ghost{min-height:26px;padding:3px 9px;background:transparent!important;font-size:12px}
+#amq-ap-panel .ap-btn.ap-ghost:hover{background:rgba(255,255,255,.08)!important}
+#amq-ap-panel .ap-btn.ap-chip{min-height:26px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:500}
+#amq-ap-panel .ap-block{display:flex;width:100%;margin-top:10px}
+#amq-ap-panel .ap-btns{display:flex;gap:6px;margin-top:8px}
+#amq-ap-panel .ap-btns>.ap-btn{flex:1}
+#amq-ap-panel .ap-x{flex:none;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent!important;color:var(--ap-dim)!important;font-size:20px;line-height:1;cursor:pointer}
+#amq-ap-panel .ap-x:hover{background:rgba(255,255,255,.08)!important;color:var(--ap-text)!important}
+#amq-ap-panel button:focus-visible{outline:2px solid var(--ap-bar);outline-offset:1px}
+#amq-ap-panel input,#amq-ap-panel select,#amq-ap-panel textarea{display:block;width:100%;height:auto;min-height:32px;padding:6px 9px;border:1px solid #474b63!important;border-radius:7px;background:var(--ap-field)!important;color:var(--ap-text)!important;caret-color:var(--ap-text);line-height:1.35;box-shadow:none;outline:none}
+#amq-ap-panel input::placeholder,#amq-ap-panel textarea::placeholder{color:#7d8099!important;opacity:1}
+#amq-ap-panel input:focus,#amq-ap-panel select:focus,#amq-ap-panel textarea:focus{border-color:var(--ap-bar)!important;box-shadow:0 0 0 3px rgba(139,108,255,.3)}
+#amq-ap-panel input:-webkit-autofill{-webkit-box-shadow:0 0 0 40px var(--ap-field) inset;-webkit-text-fill-color:var(--ap-text)}
+#amq-ap-panel select{display:inline-block;width:auto;max-width:60%;min-height:28px;padding:3px 8px;cursor:pointer}
+#amq-ap-panel option{background:var(--ap-field);color:var(--ap-text)}
+#amq-ap-panel textarea{min-height:64px;resize:vertical;font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#amq-ap-panel .ap-field{display:block;max-width:none;margin:0 0 9px;font-weight:400}
+#amq-ap-panel .ap-field>span{display:block;margin-bottom:3px;font-size:12px;font-weight:600;color:var(--ap-dim)}
+#amq-ap-panel .ap-field i{font-style:normal;font-weight:400;opacity:.8}
+#amq-ap-panel .ap-inline{display:flex;align-items:center;justify-content:space-between;gap:8px;max-width:none;margin:8px 0 0;font-size:12px;font-weight:400;color:var(--ap-dim)}
+#amq-ap-panel .ap-inline:first-child{margin:0 0 6px}
+@media (max-width:420px){#amq-ap-panel{left:8px;width:auto}}
+@media (prefers-reduced-motion:reduce){#amq-ap-panel *{transition:none!important}}`;
   function buildUi() {
     const css = document.createElement('style');
-    css.textContent = `
-      #amq-ap-btn{position:fixed;right:8px;bottom:8px;z-index:99999;padding:6px 10px;border-radius:6px;border:0;background:#6d4aff;color:#fff;font-weight:700;cursor:pointer}
-      #amq-ap-panel{position:fixed;right:8px;bottom:44px;width:360px;max-height:75vh;overflow:auto;z-index:99999;display:none;background:#1b1b26;color:#eee;font:12px/1.45 sans-serif;padding:10px;border-radius:8px;border:1px solid #444}
-      #amq-ap-panel input{width:100%;box-sizing:border-box;margin-bottom:4px;color:#000}
-      #amq-ap-panel table{width:100%;border-collapse:collapse}#amq-ap-panel td{padding:1px 4px;vertical-align:top}
-      #amq-ap-panel summary{cursor:pointer;font-weight:700;margin-top:6px}
-      #amq-ap-panel .bar{background:#333;border-radius:3px;height:6px}#amq-ap-panel .bar>i{display:block;height:6px;border-radius:3px;background:#6d4aff}
-      #amq-ap-panel .dim{color:#999}#amq-ap-panel .prog{color:#ffd76a}`;
+    css.id = 'amq-ap-css';
+    css.textContent = PANEL_CSS;
     document.head.appendChild(css);
-    const btn = document.createElement('button');
-    btn.id = 'amq-ap-btn'; btn.textContent = 'AP';
+    btn = document.createElement('button');
+    btn.id = 'amq-ap-btn'; btn.type = 'button'; btn.textContent = 'AP';
     panel = document.createElement('div'); panel.id = 'amq-ap-panel';
     body = document.createElement('div'); panel.appendChild(body);
     // AMQ's page-wide key handlers (e.g. one that blocks Backspace outside its own inputs) must not see typing here
     for (const type of ['keydown', 'keypress', 'keyup']) panel.addEventListener(type, ev => ev.stopPropagation());
     btn.onclick = () => { panel.style.display = panel.style.display === 'block' ? 'none' : 'block'; render(); };
     document.body.appendChild(btn); document.body.appendChild(panel);
+    render();
   }
-  const openState = {};
-  let backupDraft = ''; // survives re-renders while something is pasted into the Backup box
-  function section(id, title, html) {
-    return `<details data-id="${id}"${openState[id] ? ' open' : ''}><summary>${title}</summary>${html}</details>`;
+  const openState = load('open', {}); // which sections are expanded, kept across page loads
+  /** [state, label] for the status dot: ok, warn (offline but counting), busy (connecting) or off. */
+  function connState() {
+    if (S.connected) return ['ok', `${S.slotName || S.conn.slot} · connected`];
+    if (S.offline) return ['warn', `${S.slotName} · offline, still counting`];
+    if (S.ws && !S.manualClose && S.ws.readyState <= 1) return ['busy', 'Connecting…']; // a refused login sets manualClose
+    return ['off', 'Not connected'];
+  }
+  function section(id, title, html, count) {
+    const badge = count === undefined ? '' : `<span class="ap-badge">${count}</span>`;
+    return `<details class="ap-sec" data-id="${id}"${openState[id] ? ' open' : ''}><summary>${title}${badge}</summary>` +
+      `<div class="ap-sec-body">${html}</div></details>`;
   }
   const option = (current, v, label) => `<option value="${v}"${current === v ? ' selected' : ''}>${label}</option>`;
-  function loginHtml() {
-    return `<input id="ap-url" placeholder="server:port" value="${esc(S.conn.url)}">
-        <input id="ap-slot" placeholder="slot name" value="${esc(S.conn.slot)}">
-        <input id="ap-pw" type="password" placeholder="password (optional)">
-        <button id="ap-go">Connect</button>` +
-      (S.connError ? `<br><b style="color:#ffd76a">${esc(S.connError)}</b>` : '');
+  const pct = (a, b) => (b > 0 ? Math.round(100 * Math.min(a, b) / b) : 100);
+  const bar = (a, b) => `<div class="ap-bar${a >= b ? ' ap-done' : ''}"><i style="width:${pct(a, b)}%"></i></div>`;
+  const note = (tone, text) => `<div class="ap-note${tone ? ` ap-${tone}` : ''}">${esc(text)}</div>`;
+  /** One row of a check list: the name with notes under it, and a small progress bar. */
+  const itemRow = (nameHtml, a, b, locked = false) =>
+    `<div class="ap-item${locked ? ' ap-locked' : ''}"><div class="ap-name">${nameHtml}</div>` +
+    `<div class="ap-mini">${bar(a, b)}${a}/${b}</div></div>`;
+  function headHtml() {
+    const [state, label] = connState();
+    return `<div class="ap-head"><span class="ap-dot ap-${state}"></span>` +
+      `<div class="ap-title"><b>Archipelago</b><span>${esc(label)}</span></div>` +
+      (S.connected || S.offline ? '<button id="ap-dc" class="ap-btn ap-ghost" type="button">Disconnect</button>' : '') +
+      '<button id="ap-close" class="ap-x" type="button" title="Close">×</button></div>';
   }
-  /** Slot, counters, traps, last song and goal at the top of the panel. */
+  function loginHtml() {
+    // new-password keeps the browser from filling in a saved AMQ password here, which would go to the AP server
+    return `<label class="ap-field"><span>Server</span><input id="ap-url" placeholder="archipelago.gg:38281" value="${esc(S.conn.url)}" spellcheck="false" autocomplete="off"></label>
+        <label class="ap-field"><span>Slot name</span><input id="ap-slot" placeholder="your slot name" value="${esc(S.conn.slot)}" spellcheck="false" autocomplete="off"></label>
+        <label class="ap-field"><span>Password <i>(optional)</i></span><input id="ap-pw" type="password" placeholder="room password" autocomplete="new-password" data-lpignore="true" data-1p-ignore></label>
+        <button id="ap-go" class="ap-btn ap-primary ap-block" type="button">Connect</button>` +
+      (S.connError ? note('warn', S.connError) : '') +
+      '<p class="ap-help">Press Enter in any field to connect.</p>';
+  }
+  const TRAP_LABELS = { mute: 'Mute', reverse: 'Reverse typing', tiny: 'Tiny text', blind: 'Blind' };
+  /** The last song's fields, with what happened to it colored: counted, missed or ignored. */
+  function lastSongHtml() {
+    const i = S.lastSong.lastIndexOf(' → ');
+    if (i < 0) return `<div class="ap-last"><b>Last song</b> ${esc(S.lastSong)}</div>`;
+    const status = S.lastSong.slice(i + 3);
+    const tone = /^counted/.test(status) ? 'good' : /^missed/.test(status) ? 'bad' : 'warn';
+    return `<div class="ap-last"><b>Last song</b> ${esc(S.lastSong.slice(0, i))} <span class="ap-${tone}">→ ${esc(status)}</span></div>`;
+  }
+  /** Checks, fragments, goal, counters, traps, last song and finale at the top of the panel. */
   function statusHtml() {
     const D = S.data, P = S.prog, g = S.game;
     const done = D.checks.filter(c => S.checked.has(c.id)).length;
-    let h = `<b>${esc(S.slotName)}</b> · checks ${done}/${D.checks.length} · fragments ${S.fragments}/${D.fragments_required}
-        <button id="ap-dc" style="float:right">Disconnect</button><br>
-        <span class="dim">Correct ${P.total} · streak ${g.streak} (best ${g.best}) · encore ${P.encore} · shield ${P.shield}` +
-      `${P.mulligan ? ` · mulligan ${P.mulligan}` : ''}${P.spotlight ? ` · spotlight ${P.spotlight}` : ''}` +
-      `${P.linerNotes ? ` · liner notes ${P.linerNotes}` : ''}</span><br>`;
-    if (S.offline) h += '<b style="color:#ffd76a">Offline: still counting, checks are sent when the connection is back.</b><br>';
-    const traps = Object.entries(P.traps).filter(([, v]) => v > 0).map(([k, v]) => `${k} ${v}`);
-    if (traps.length) h += `<b style="color:#ff7a7a">Traps: ${traps.join(', ')} songs</b><br>`;
-    if (S.lastSong) h += `<span class="dim">Last song: ${esc(S.lastSong)}</span><br>`;
-    if (D.goal === 'finale') {
-      h += P.finaleDone ? 'Finale: cleared<br>' : S.fragments >= D.fragments_required
-        ? `<b>Finale open:</b> ${D.finale_songs}+ counted songs at ${D.finale_accuracy}% in one game<br>` : '';
-    }
+    const meter = (label, a, b, wide) => `<div class="ap-meter${wide ? ' ap-wide' : ''}"><div class="ap-meter-top"><span>${label}</span>` +
+      `<b>${a}/${b}</b></div>${bar(a, b)}</div>`;
     const [goalDone, goalTotal] = goalChecks();
     const goalWhat = { scholar: 'Genre Scholar checks', specialist: 'song type checks', completionist: 'checks' }[D.goal] || 'checks';
-    if (goalTotal) h += `Goal: ${Math.min(goalDone, goalTotal)}/${goalTotal} ${goalWhat}<br>`;
+    let h = '<div class="ap-meters">' + meter('Checks', done, D.checks.length) + meter('Fragments', S.fragments, D.fragments_required) +
+      (goalTotal ? meter(`Goal: ${goalWhat}`, Math.min(goalDone, goalTotal), goalTotal, true) : '') + '</div>';
+    const stats = [['Correct', P.total], ['Streak', g.streak, `best ${g.best}`], ['Encore', P.encore], ['Shield', P.shield],
+      ...[['Mulligan', P.mulligan], ['Spotlight', P.spotlight], ['Liner Notes', P.linerNotes]].filter(([, n]) => n)];
+    h += '<div class="ap-stats">' + stats.map(([k, v, more]) =>
+      `<div class="ap-stat"><b>${v}</b><span>${k}${more ? ` · ${more}` : ''}</span></div>`).join('') + '</div>';
+    if (S.offline) h += note('warn', 'Offline: still counting, checks are sent when the connection is back.');
+    const traps = Object.entries(P.traps).filter(([, v]) => v > 0)
+      .map(([k, v]) => `${TRAP_LABELS[k] || k} (${v} song${v === 1 ? '' : 's'})`);
+    if (traps.length) h += note('bad', `Traps: ${traps.join(', ')}`);
+    if (S.lastSong) h += lastSongHtml();
+    if (D.goal === 'finale') {
+      if (P.finaleDone) h += note('good', 'Grand Finale cleared');
+      else if (S.fragments >= D.fragments_required) {
+        h += note('', `Finale open: ${D.finale_songs}+ counted songs at ${D.finale_accuracy}% in one game`);
+      }
+    }
     return h;
   }
   function guideSection() {
-    const rows = lobbyGuide().map(([k, v]) => `<tr><td class="dim">${k}</td><td>${esc(v)}</td></tr>`).join('');
-    return section('guide', 'Lobby settings', `<table>${rows}</table><button id="ap-lobby">Apply to room (host only)</button>`);
+    const rows = lobbyGuide().map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join('');
+    return section('guide', 'Lobby settings', `<table class="ap-kv">${rows}</table>` +
+      '<button id="ap-lobby" class="ap-btn ap-primary ap-block" type="button">Apply to room (host only)</button>');
   }
   function nextSection() {
     const next = nextUp(3);
-    if (!next.length) return section('next', 'Play next', '<span class="dim">No open check can be focused with the room settings right now.</span>');
+    if (!next.length) return section('next', 'Play next', '<p class="ap-help">No open check can be focused with the room settings right now.</p>');
     const rows = next.map(c => {
       const [a, b] = progressOf(c, false);
-      return `<tr><td>${esc(c.name)}</td><td class="dim" style="width:50px">${Math.min(a, b)}/${b}</td></tr>`;
+      return itemRow(esc(c.name), Math.min(a, b), b);
     }).join('');
-    return section('next', 'Play next', `<table>${rows}</table><button id="ap-focus">Focus room on the first (host only)</button>`);
+    return section('next', 'Play next', rows + '<button id="ap-focus" class="ap-btn ap-block" type="button">Focus room on the first (host only)</button>');
   }
   function hintsSection() {
     const missing = missingUnlocks();
-    return section('hints', `Hint an unlock (${missing.length})`, missing.length
-      ? missing.map(n => `<button data-hint="${esc(n)}" style="margin:1px">${esc(n)}</button>`).join('') +
-        '<br><span class="dim">Asks the server for a hint (costs hint points like !hint).</span>'
-      : '<span class="dim">You have every unlock.</span>');
+    return section('hints', 'Hint an unlock', missing.length
+      ? '<div class="ap-chips">' + missing.map(n => `<button class="ap-btn ap-chip" type="button" data-hint="${esc(n)}">${esc(n)}</button>`).join('') +
+        '</div><p class="ap-help">Asks the server for a hint (costs hint points like !hint).</p>'
+      : '<p class="ap-help">You have every unlock.</p>', missing.length);
   }
   /** The unlocks a check still waits for, from the requirements in slot data: "Decade Pass: 1990s",
    *  "1 more Progressive Rarity Lens" or "Genres: 3 more". Empty when it is in logic (or the seed predates them). */
@@ -1300,34 +1433,43 @@
     }).sort((x, y) => (x.lock > 0 || x.needs.length > 0) - (y.lock > 0 || y.needs.length > 0) || y.a / y.b - x.a / x.b);
     const stageName = c => ((D.stages || [])[c.stage || 0]) || 'next stage';
     const rows = open.slice(0, 40).map(({ c, a, b, needs, lock }) => {
-      const scout = scoutLabel(c.id), star = S.scouts[c.id] && S.scouts[c.id].flags & 1 && S.scoutMode !== 'off';
-      const note = (scout ? `<br><span class="${star ? 'prog' : 'dim'}">→ ${esc(scout)}</span>` : '') +
-        (needs.length ? `<br><span class="dim">needs ${esc(needs.join('; '))}</span>` : '') +
-        (lock ? `<br><span class="dim">${esc(stageName(c))}: ${lock} more fragment${lock > 1 ? 's' : ''}</span>` : '');
-      const bar = `<div class="bar"><i style="width:${Math.round(100 * a / b)}%"></i></div>`;
-      return `<tr><td>${esc(c.name)}${note}</td><td style="width:70px">${bar}<span class="dim">${a}/${b}</span></td></tr>`;
+      const scout = scoutLabel(c.id);
+      const note = (scout ? `<div class="ap-sub ap-${importance(S.scouts[c.id])}">→ ${esc(scout)}</div>` : '') +
+        (needs.length ? `<div class="ap-sub ap-need">needs ${esc(needs.join('; '))}</div>` : '') +
+        (lock ? `<div class="ap-sub ap-need">${esc(stageName(c))}: ${lock} more fragment${lock > 1 ? 's' : ''}</div>` : '');
+      return itemRow(esc(c.name) + note, a, b, needs.length > 0 || lock > 0);
     }).join('');
-    const scoutSelect = '<span class="dim">Show contents</span> <select id="ap-scout">' + option(S.scoutMode, 'items', 'items') +
-      option(S.scoutMode, 'importance', 'importance only') + option(S.scoutMode, 'off', 'nothing') + '</select>';
-    return section('checks', `Open checks (${open.length})`, `${scoutSelect}<table>${rows}</table>`);
+    const scoutSelect = '<label class="ap-inline">Show contents <select id="ap-scout">' + option(S.scoutMode, 'items', 'items') +
+      option(S.scoutMode, 'importance', 'importance only') + option(S.scoutMode, 'off', 'nothing') + '</select></label>';
+    const more = open.length > 40 ? `<p class="ap-help">and ${open.length - 40} more</p>` : '';
+    return section('checks', 'Open checks', scoutSelect + rows + more, open.length);
   }
   function logSection() {
-    const chatSelect = '<span class="dim">Show in AMQ chat</span> <select id="ap-chat">' +
+    const chatSelect = '<label class="ap-inline">Show in AMQ chat <select id="ap-chat">' +
       option(S.chatMode, 'mine', 'my items, hints, chat') + option(S.chatMode, 'all', 'everything') +
-      option(S.chatMode, 'off', 'nothing') + '</select>';
-    return section('log', 'Log', `<div style="max-height:140px;overflow:auto">${S.log.slice(-25).map(esc).join('<br>')}</div>` +
-      chatSelect + '<br><span class="dim">Type /ap help in AMQ chat for commands.</span>');
+      option(S.chatMode, 'off', 'nothing') + '</select></label>';
+    const lines = S.log.map(l => `<div>${esc(l)}</div>`).join('') || '<div class="ap-dim">Nothing yet.</div>';
+    return section('log', 'Log', `<div id="ap-log" class="ap-log">${lines}</div>` + chatSelect +
+      '<p class="ap-help">Type <code>/ap help</code> in AMQ chat for commands.</p>');
   }
   function backupSection() {
-    return section('backup', 'Backup', `<textarea id="ap-backup" rows="3" style="width:100%;box-sizing:border-box;color:#000">${esc(backupDraft)}</textarea>` +
-      '<button id="ap-export">Export</button> <button id="ap-import">Import</button>' +
-      '<br><span class="dim">Carries progress and unsent checks to another browser when the server is unreachable.</span>');
+    return section('backup', 'Backup', '<textarea id="ap-backup" rows="3" spellcheck="false" ' +
+      'placeholder="Export puts your progress here. Paste an export here to import it."></textarea>' +
+      '<div class="ap-btns"><button id="ap-export" class="ap-btn" type="button">Export</button>' +
+      '<button id="ap-import" class="ap-btn" type="button">Import</button></div>' +
+      '<p class="ap-help">Carries progress and unsent checks to another browser when the server is unreachable.</p>');
   }
   /** Wires the panel's buttons and selects after each render. */
   function bindPanel() {
     const $ = sel => body.querySelector(sel);
     const on = (sel, event, fn) => { const el = $(sel); if (el) el[event] = () => fn(el); };
-    on('#ap-go', 'onclick', () => connect($('#ap-url').value, $('#ap-slot').value, $('#ap-pw').value));
+    const go = () => connect($('#ap-url').value, $('#ap-slot').value, $('#ap-pw').value);
+    on('#ap-go', 'onclick', go);
+    for (const sel of ['#ap-url', '#ap-slot', '#ap-pw']) {
+      const el = $(sel);
+      if (el) el.onkeydown = ev => { if (ev.key === 'Enter') { ev.preventDefault(); go(); } };
+    }
+    on('#ap-close', 'onclick', () => { panel.style.display = 'none'; });
     on('#ap-dc', 'onclick', () => { disconnect(); say('Disconnected.'); });
     on('#ap-lobby', 'onclick', () => applyLobby());
     on('#ap-focus', 'onclick', () => applyFocus());
@@ -1337,14 +1479,36 @@
     on('#ap-scout', 'onchange', el => { S.scoutMode = el.value; save('scout', el.value); render(); });
     body.querySelectorAll('[data-hint]').forEach(b => { b.onclick = () => hintItem(b.dataset.hint); });
   }
+  /** What is typed into the panel's boxes, which one has focus and where the log is scrolled, so that a re-render
+   *  (every log line triggers one) keeps a half-typed address, password or pasted backup. Returns the restorer. */
+  function keepTyping() {
+    const values = [...body.querySelectorAll('input, textarea')].filter(el => el.id).map(el => [el.id, el.value]);
+    const act = document.activeElement;
+    const focus = act && act.id && body.contains(act) ? [act.id, act.selectionStart, act.selectionEnd] : null;
+    const log = body.querySelector('#ap-log');
+    // null: follow the newest line; otherwise keep the place someone scrolled back to
+    const logTop = log && log.scrollTop + log.clientHeight < log.scrollHeight - 4 ? log.scrollTop : null;
+    return () => {
+      const $ = id => body.querySelector('#' + id);
+      for (const [id, v] of values) { const el = $(id); if (el) el.value = v; }
+      const el = focus && $(focus[0]);
+      if (el) { el.focus(); try { el.setSelectionRange(focus[1], focus[2]); } catch (e) { /* not a text box */ } }
+      const newLog = $('ap-log');
+      if (newLog) newLog.scrollTop = logTop === null ? newLog.scrollHeight : logTop;
+    };
+  }
   function render() {
+    if (btn) { const [state, label] = connState(); btn.dataset.state = state; btn.title = `Archipelago: ${label}`; }
     if (!body || panel.style.display !== 'block') return;
-    body.querySelectorAll && body.querySelectorAll('details').forEach(d => { openState[d.dataset.id] = d.open; });
-    const draft = body.querySelector && body.querySelector('#ap-backup');
-    if (draft) backupDraft = draft.value;
+    const before = JSON.stringify(openState);
+    body.querySelectorAll('details').forEach(d => { openState[d.dataset.id] = d.open; });
+    if (JSON.stringify(openState) !== before) save('open', openState);
+    const restore = keepTyping();
     const live = S.connected || S.offline;
-    body.innerHTML = (live ? statusHtml() + guideSection() + nextSection() + hintsSection() + checksSection() : loginHtml()) +
-      logSection() + (S.data ? backupSection() : '');
+    body.innerHTML = headHtml() + '<div class="ap-main">' +
+      (live ? statusHtml() + guideSection() + nextSection() + hintsSection() + checksSection() : loginHtml()) +
+      logSection() + (S.data ? backupSection() : '') + '</div>';
+    restore();
     bindPanel();
   }
 
