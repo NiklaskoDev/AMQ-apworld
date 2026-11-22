@@ -74,6 +74,9 @@ async function run(key) {
     lobby: { inLobby: true, isHost: true, settings: JSON.parse(JSON.stringify(settings)), changeGameSettings() {} },
     hostModal: { getSettings: () => JSON.parse(JSON.stringify(settings)), changeSettings: d => lobbyChanges.push(d),
       DEFUALT_SETTINGS: { vintage: { standardValue: { years: [1944, 2026] } } } },
+    // AMQ's song library: a song's category by annSongId (0 none, 1 Instrumental, 2 Chanting, 3 Character, 4 Standard)
+    libraryCacheHandler: { animeCache: { 1: {} }, getCache(done) { done(); },
+      getCachedAnnSongEntry: id => ({ annSongId: id, songEntry: { category: id % 5 } }) },
     idTranslator: { genreNames: { 1: 'Action', 2: 'Comedy', 3: 'Drama', 4: 'Fantasy', 5: 'Horror', 6: 'Mecha', 7: 'Romance', 8: 'Sci-Fi', 9: 'Slice of Life' } },
   };
   sandbox.window = sandbox;
@@ -118,7 +121,7 @@ async function run(key) {
     now += 1000 + Math.floor(rnd() * 6000);
     if (rnd() < 0.6) sandbox.document.handlers.keydown.forEach(f => f({ key: 'Enter', target: { id: 'qpAnswerInput' } }));
     now += 2000;
-    const extra = { songCategory: pick(['Standard', 'Instrumental', 'Chanting', 'Character', { name: 'standard' }]),
+    const extra = { annSongId: Math.floor(rnd() * 1000),
       animeScore: pick([8.5, 7.2, 6.4, 5.1, null, '7.9']), isDub: rnd() < 0.15, isRebroadcast: rnd() < 0.1 };
     const p = {
       songInfo: { type: pick(types), vintage: `${pick(seasons)} ${1980 + Math.floor(rnd() * 46)}`, animeType: pick(formats),
@@ -176,7 +179,7 @@ async function run(key) {
   out.storage = Object.fromEntries([...storage.entries()].sort());
   out.extract = [
     { songInfo: { type: 2, vintage: 'Fall 1979', animeType: 'Movie', animeDifficulty: 12, animeGenre: { a: { name: 'mahou-shoujo' } } } },
-    { songInfo: { type: 'Insert Song', vintage: '2021', animeType: 'ONA', animeDifficulty: 'Unrated', animeGenre: ['slice_of_life'], songCategoryName: 'chanting', animeScore: '9' } },
+    { songInfo: { type: 'Insert Song', vintage: '2021', animeType: 'ONA', animeDifficulty: 'Unrated', animeGenre: ['slice_of_life'], annSongId: 7, animeScore: '9' } },
     {},
   ].map(p => api.extractSong(p));
   return out;

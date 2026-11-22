@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Anime Music Quiz - Archipelago Client
 // @namespace    https://github.com/niklaskodev/amq-apworld
-// @version      0.12.0
+// @version      0.12.1
 // @description  Connects Anime Music Quiz to an Archipelago multiworld. Unaffiliated fan project.
 // @homepageURL  https://github.com/niklaskodev/amq-apworld
 // @supportURL   https://github.com/niklaskodev/amq-apworld/issues
@@ -78,6 +78,7 @@
     unlocks: null, fragments: 0, prog: freshProgress(), game: freshGame(), pending: [],
     goalSent: false, quizSeen: false, lastPayload: null, lastSong: '', log: [], logHtml: [], chatMode: load('chat', 'mine'), connError: '',
     songStart: 0, lastSubmit: 0, songChoices: null, ringSource: Math.floor(Math.random() * 2 ** 31),
+    library: { asked: 0, loaded: false }, // AMQ's song library, see loadLibrary
   };
 
   // ---------- AMQ adapters ----------
@@ -131,13 +132,38 @@
     const names = list.map(g => (typeof g === 'string' ? g : g && (g.name || g.genre || g.tag || g.title)));
     return [...new Set(names.map(n => canon(GENRES, n)).filter(Boolean))];
   }
-  // The fields below are not used by the community scripts this client was checked against, so several spellings are
-  // accepted. undefined means AMQ sent nothing readable: the song counts and that category's checks can't progress.
   const firstSet = (s, keys) => keys.map(k => s[k]).find(v => v !== undefined && v !== null);
-  function categoryOf(s) {
-    const raw = firstSet(s, ['songCategory', 'category', 'songCategoryName']);
-    const name = raw && typeof raw === 'object' ? raw.name : raw;
-    return canon(CATEGORIES, name) || undefined;
+  // answer results don't say a song's category. AMQ's song library (libraryCacheHandler, as community scripts read it)
+  // does, by annSongId, numbered as below; it is only filled once something asks for it, see loadLibrary.
+  const LIBRARY_CATEGORIES = { 1: 'Instrumental', 2: 'Chanting', 3: 'Character', 4: 'Standard' }; // 0: none
+  const LIBRARY_WAIT = 60000; // how long a library load may take before the client says it is missing
+  const CATEGORY_SETTINGS = { Opening: 'openingCategories', Ending: 'endingCategories', 'Insert Song': 'insertCategories' };
+  const library = () => (typeof libraryCacheHandler !== 'undefined' && libraryCacheHandler) || null;
+  /** 'ready', 'loading' or 'missing' (no library on the page, or it didn't load in time). */
+  function libraryState() {
+    const L = library();
+    if (!L || typeof L.getCachedAnnSongEntry !== 'function') return 'missing';
+    if (S.library.loaded || (L.animeCache && Object.keys(L.animeCache).length)) return 'ready';
+    return S.library.asked && Date.now() - S.library.asked < LIBRARY_WAIT ? 'loading' : 'missing';
+  }
+  /** Asks AMQ once to load its song library, which the song category checks read. */
+  function loadLibrary() {
+    const L = library();
+    if (S.library.asked || !L || typeof L.getCache !== 'function' || libraryState() === 'ready') return;
+    S.library.asked = Date.now();
+    try { L.getCache(() => { S.library.loaded = true; }); } catch (e) { S.library.asked = -LIBRARY_WAIT; }
+  }
+  /** The song's category from AMQ's song library, or else from the room when it allows one category for the song's
+   *  type. undefined when neither tells: the song counts and its category's checks can't progress. */
+  function categoryOf(s, type) {
+    try {
+      const entry = s.annSongId !== undefined && s.annSongId !== null && library() && library().getCachedAnnSongEntry(s.annSongId);
+      const known = entry && entry.songEntry && LIBRARY_CATEGORIES[entry.songEntry.category];
+      if (known) return known;
+    } catch (e) { /* library not ready */ }
+    const set = roomSetting(CATEGORY_SETTINGS[type]);
+    const open = set && typeof set === 'object' ? CATEGORIES.filter(c => set[c.toLowerCase()] === true) : [];
+    return open.length === 1 ? open[0] : undefined;
   }
   function scoreTierOf(s) { // null: the anime has no score
     if (!('animeScore' in s)) return undefined;
@@ -148,16 +174,16 @@
   const flagOf = (s, keys) => keys.map(k => s[k]).find(v => typeof v === 'boolean');
   function extractSong(p) {
     const s = (p && p.songInfo) || {};
+    const type = TYPES[s.type] || canon(Object.values(TYPES), s.type);
     return {
-      type: TYPES[s.type] || canon(Object.values(TYPES), s.type),
+      type,
       decade: decadeOf(s.vintage),
       year: yearOf(s.vintage),
       season: seasonOf(s.vintage),
       genres: genresOf(s.animeGenre),
       format: formatOf(s.animeType),
       tier: tierOf(s.animeDifficulty),
-      category: categoryOf(s),
-      categoryRaw: firstSet(s, ['songCategory', 'category', 'songCategoryName']),
+      category: categoryOf(s, type),
       scoreTier: scoreTierOf(s),
       dub: flagOf(s, ['isDub', 'dub']),
       rebroadcast: flagOf(s, ['isRebroadcast', 'rebroadcast']),
@@ -606,6 +632,7 @@
         restoreProg(pick || {});
         S.ready = true;
         S.queued.splice(0).forEach(onItems);
+        if (gated('Song Category')) loadLibrary();
         applyTraps();
         flushPending();
         evaluate();
@@ -934,9 +961,9 @@
     if (gated('Sample Point') && room.samplePoint === null) {
       warnOnce('sample', "Can't read the room's sample point, so songs count regardless and sample point checks can't progress.");
     }
-    if (gated('Song Category') && song.category === undefined) {
-      const got = song.categoryRaw === undefined ? '' : ` (AMQ sent ${JSON.stringify(song.categoryRaw)})`;
-      warnOnce('category', `Can't read the song category${got}, so songs count regardless and song category checks can't progress.`);
+    if (gated('Song Category') && song.category === undefined && libraryState() === 'missing') {
+      warnOnce('category', "Can't read song categories: AMQ's song library didn't load. Songs count regardless, and song " +
+        'category checks only progress in a room that allows one category per song type.');
     }
     if (gated('Anime Score') && song.scoreTier === undefined) {
       warnOnce('score', "Can't read the anime score, so songs count regardless and anime score checks can't progress.");
@@ -999,7 +1026,7 @@
   function songLine(song, own, room, status) {
     const origin = songSource() === 'any' ? null : own.onList ? 'on list' : 'off list';
     const sample = gated('Sample Point') && room.samplePoint ? `${room.samplePoint} sample` : null;
-    const extra = [gated('Seasons') && song.season, gated('Song Category') && song.category, gated('Anime Score') && song.scoreTier && `${song.scoreTier} anime`,
+    const extra = [gated('Seasons') && song.season, gated('Song Category') && (song.category || 'unknown category'), gated('Anime Score') && song.scoreTier && `${song.scoreTier} anime`,
       song.dub && 'dub', song.rebroadcast && 'rebroadcast', own.multipleChoice === true && 'multiple choice'];
     return [song.type, song.decade, song.format, song.tier, ...extra, sample, origin].filter(Boolean).join(' · ') +
       ' → ' + status;
@@ -1070,6 +1097,7 @@
   }
   function onQuizReady() {
     S.game = freshGame(); S.quizSeen = true;
+    if (S.ready && gated('Song Category')) loadLibrary();
     if (S.ready) save(storeKey('game'), gameSnapshot());
     applyTraps(); render();
   }

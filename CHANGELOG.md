@@ -4,6 +4,19 @@ World and userscript share one version. "Client version" is the number the world
 older than that warns that it needs an update. Since 0.2.0 no item or location id has changed, so a newer apworld
 still matches older seeds. Pushing a `vX.Y.Z` tag publishes the newest entry below as a GitHub release.
 
+## [0.12.1] - 2026-11-22
+
+Client version 8 (unchanged). No changes to generation: seeds come out the same as with 0.12.0.
+
+### Fixed
+- Client: with `Song Category` locked, the Instrumental, Chanting, Character and Standard checks never progressed.
+  AMQ's `answer results` don't include a song's category at all, so the client never knew one and counted every
+  song without it. It now looks the song's `annSongId` up in AMQ's own song library (`libraryCacheHandler`), which it
+  asks AMQ to load when you connect, the same way community userscripts read song categories. Songs the library
+  doesn't know still count without a category, unless the room allows only one category for that song type: then
+  the song has that one. The panel shows "unknown category" for such songs, and the log says once if the library
+  doesn't load.
+
 ## [0.12.0] - 2026-11-01
 
 Client version 8 (unchanged). No changes to generation: seeds come out the same as with 0.11.0.

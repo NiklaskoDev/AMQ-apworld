@@ -764,22 +764,74 @@ const CATEGORY_CHECKS = [
   { id: 3201, name: 'Instrumental Songs: 1 Correct', kind: 'category', key: 'Instrumental', n: 1, stage: 0 },
 ];
 
-test('song category: unreadable counts and warns once, locked categories are ignored until their pass', async () => {
-  const { ws, fire, S, api } = await connected({ slot: { gated: [...ALL_GATES, 'Song Category'], checks: [...CHECKS, ...CATEGORY_CHECKS] } });
+/** AMQ's song library as community scripts read it: songEntry.category by annSongId (1 Instrumental, 2 Chanting,
+ *  3 Character, 4 Standard). getCache fills it when asked, like AMQ does on its own. */
+function fakeLibrary(categories, { loaded = true } = {}) {
+  const L = { animeCache: {}, asked: 0, pending: [],
+    getCache(done) { L.asked++; L.pending.push(done); },
+    finish() { L.animeCache[1] = {}; L.pending.splice(0).forEach(fn => fn()); },
+    getCachedAnnSongEntry: id => (Object.keys(L.animeCache).length && id in categories
+      ? { annSongId: id, songEntry: { category: categories[id] } } : undefined) };
+  if (loaded) L.animeCache[1] = {};
+  return L;
+}
+const song = annSongId => answer({ extra: { annSongId } });
+
+test('song category: read from AMQ\'s song library, locked categories are ignored until their pass', async () => {
+  const c = await loadClient({ WebSocket: FakeSocket });
+  const lib = c.sandbox.libraryCacheHandler = fakeLibrary({ 11: 1, 12: 4, 13: 0 }, { loaded: false });
+  c.api.connect('ws://test:1', 'Me', '');
+  await tick();
+  const ws = handshake(c, { slot: { gated: [...ALL_GATES, 'Song Category'], checks: [...CHECKS, ...CATEGORY_CHECKS] } });
+  const { fire, S } = c;
+  assert.equal(lib.asked, 1, 'asks AMQ to load its song library when categories are locked');
   sentChecks(ws);
-  fire('answer results', answer({ extra: { songCategory: 7 } }));
-  fire('answer results', answer());
-  assert.equal(S.prog.total, 2, 'songs without a readable category still count');
-  assert.equal(S.log.filter(l => /Can't read the song category/.test(l)).length, 1);
-  assert.match(S.log.find(l => /Can't read the song category/.test(l)), /AMQ sent 7/);
-  fire('answer results', answer({ extra: { songCategory: 'Instrumental' } }));
-  assert.match(S.lastSong, /ignored \(Instrumental songs locked\)/);
-  fire('answer results', answer({ extra: { songCategory: 'standard' } }));
-  fire('answer results', answer({ extra: { songCategory: { name: 'Standard' } } }));
+  fire('answer results', song(11));
+  assert.match(S.lastSong, /unknown category → counted/, 'still loading: the song counts, its category is unknown');
+  assert.equal(S.log.filter(l => /song categories/i.test(l)).length, 0, 'no warning while the library loads');
+  lib.finish();
+  fire('answer results', song(11));
+  assert.match(S.lastSong, /Instrumental → ignored \(Instrumental songs locked\)/);
+  fire('answer results', song(12));
+  fire('answer results', song(12));
   assert.deepEqual(sentChecks(ws).filter(id => id >= 3200), [3200]);
+  fire('answer results', song(13)); // no category in the library
+  fire('answer results', answer()); // no annSongId
+  assert.match(S.lastSong, /unknown category → counted/);
   ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Song Category: Instrumental']) }]);
-  fire('answer results', answer({ extra: { songCategory: 'Instrumental' } }));
+  fire('answer results', song(11));
   assert.deepEqual(sentChecks(ws).filter(id => id >= 3200), [3201]);
+  fire('quiz ready', {});
+  assert.equal(lib.asked, 1, 'asks only once');
+  assert.equal(S.log.filter(l => /song categories/i.test(l)).length, 0);
+});
+
+test('song category: without the library a room with one category per song type still tells', async () => {
+  const { ws, fire, S, sandbox } = await connected({ slot: { gated: [...ALL_GATES, 'Song Category'], checks: [...CHECKS, ...CATEGORY_CHECKS] } });
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Song Category: Instrumental']) }]);
+  sentChecks(ws);
+  const all = () => ({ instrumental: true, chanting: true, character: true, standard: true });
+  const only = c => ({ instrumental: false, chanting: false, character: false, standard: false, [c]: true });
+  sandbox.lobby = { settings: { openingCategories: all(), endingCategories: only('instrumental'), insertCategories: all() } };
+  fire('answer results', song(11));
+  assert.match(S.lastSong, /unknown category → counted/, 'several categories open for Openings');
+  assert.equal(S.log.filter(l => /song library didn't load/.test(l)).length, 1, 'warns once without a library');
+  sandbox.lobby.settings = { openingCategories: only('instrumental'), endingCategories: all(), insertCategories: all() };
+  fire('answer results', song(11));
+  assert.match(S.lastSong, /Instrumental → counted/, 'Openings can only be Instrumental in this room');
+  assert.deepEqual(sentChecks(ws).filter(id => id >= 3200), [3201]);
+  sandbox.lobby.settings.openingCategories = only('chanting');
+  fire('answer results', song(11));
+  assert.match(S.lastSong, /ignored \(Chanting songs locked\)/);
+  sandbox.libraryCacheHandler = fakeLibrary({ 11: 3 });
+  fire('answer results', song(11));
+  assert.match(S.lastSong, /ignored \(Character songs locked\)/, 'the library wins over the room');
+  assert.equal(S.log.filter(l => /song library didn't load/.test(l)).length, 1);
+});
+
+test('song category: Apply to room sets AMQ\'s per-song-type category settings', async () => {
+  const { api, ws } = await connected({ slot: { gated: [...ALL_GATES, 'Song Category'], checks: [...CHECKS, ...CATEGORY_CHECKS] } });
+  ws.server([{ cmd: 'ReceivedItems', index: 4, items: items(['Song Category: Instrumental']) }]);
   // AMQ's real shape: a set of categories per song type
   const all = () => ({ instrumental: true, chanting: true, character: true, standard: true });
   const room = { openingCategories: all(), endingCategories: { ...all(), instrumental: false }, insertCategories: all() };

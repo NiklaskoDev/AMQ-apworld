@@ -141,10 +141,19 @@ Three more optional entries for `unlock_categories`, none of them in the default
 | `Anime Score` | anime scored 7 or more (Acclaimed 8+, Well Liked 7–8) | two Progressive Score Lenses: Mixed (6–7), then Overlooked (below 6) | per tier, 3 to 10 correct songs |
 | `Dub & Rebroadcast` | everything except dubs and rebroadcasts | Dub Pass, Rebroadcast Pass | first correct and 3 correct of each |
 
-Anime without a score are ignored while `Anime Score` is locked. These categories use song data that the client
-reads from AMQ but that has not been checked against the live site yet. If it can't read a field, songs count anyway,
-the client says so once in the panel log, and that category's checks can't progress. If that happens, please report
-it together with `AMQAP.state.lastPayload.songInfo` from the browser console.
+Anime without a score are ignored while `Anime Score` is locked.
+
+AMQ doesn't send a song's category with the song, so with `Song Category` locked the client looks it up in AMQ's
+song library (the list behind AMQ's own song library page), which it loads when you connect. A song the library
+doesn't know, or any song while it is still loading, counts anyway and shows as "unknown category" in the panel. In a
+room that allows only one category for that song type the client takes that one instead; when Play next suggests a
+category check, Focus room (or `/ap lobby next`) sets the room up that way. If the library doesn't load at all, the
+panel log says so once.
+
+Anime Score and Dub & Rebroadcast use song data that the client reads from AMQ but that has not been checked against
+the live site yet. If it can't read a field, songs count anyway, the client says so once in the panel log, and that
+category's checks can't progress. If that happens, please report it together with
+`AMQAP.state.lastPayload.songInfo` from the browser console.
 
 ## Seasons
 

@@ -107,9 +107,13 @@ changelog entry as notes. Installed userscripts update from the latest release.
 
 The client listens to AMQ's in-page events (`answer results`, `quiz ready`, `quiz over`, `play next song`) and reads
 `songInfo.type`, `vintage`, `animeType`, `animeDifficulty` and `animeGenre` plus the player list (`correct`,
-`score`, `listStatus`). The optional Song Category, Anime Score and Dub & Rebroadcast categories also read
-`songCategory`, `animeScore` and `isDub`/`isRebroadcast`; those song fields have not been checked against the live site
-yet, so the client accepts a few spellings and falls back to counting songs when it can't read them. Their room
+`score`, `listStatus`). `answer results` doesn't say a song's category, so the optional Song Category looks
+`songInfo.annSongId` up in AMQ's song library (`libraryCacheHandler.getCachedAnnSongEntry(id).songEntry.category`:
+1 Instrumental, 2 Chanting, 3 Character, 4 Standard, as two community userscripts read it), which it asks AMQ to
+load with `libraryCacheHandler.getCache`; for a song the library doesn't know, a room that allows only one category for
+its song type settles it. Anime Score and Dub & Rebroadcast read `animeScore` and `isDub`/`isRebroadcast`; those
+song fields have not been checked against the live site yet, so the client accepts a few spellings and falls back
+to counting songs when it can't read them. Their room
 settings (`openingCategories`/`endingCategories`/`insertCategories`, `animeScore`, and `dubSongs`/`rebroadcastSongs` in
 `modifiers`) and `answeringMode` (1 Typing, 2 Mix, 3 Multiple Choice) match a real room's `hostModal.getSettings(true)`.
 For the room settings (and the room's guess time) it uses `lobby.settings`, `hostModal.getSettings`/`changeSettings` and
