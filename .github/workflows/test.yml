@@ -22,6 +22,8 @@ jobs:
           python-version: "3.12"
       - name: Fetch Archipelago ${{ matrix.archipelago }}
         run: git clone --depth 1 --branch ${{ matrix.archipelago }} https://github.com/ArchipelagoMW/Archipelago.git ap
+      - name: Install cairo (KivyMD 2 in Archipelago's requirements builds pycairo)
+        run: sudo apt-get update -q && sudo apt-get install -y -q libcairo2-dev
       - run: pip install -r ap/requirements.txt pytest
       - run: ln -s "$PWD/amq" ap/worlds/amq
       - name: World tests
